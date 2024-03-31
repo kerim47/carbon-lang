@@ -9,12 +9,10 @@
 
 #include <string>
 
-#include "llvm/Support/Error.h"
-
 using ::testing::Eq;
 using ::testing::Optional;
 
-namespace Carbon::Testing {
+namespace Carbon {
 namespace {
 
 TEST(UnescapeStringLiteral, Valid) {
@@ -230,4 +228,4 @@ TEST(ParseBlockStringLiteral, OkMultipleSlashes) {
 }
 
 }  // namespace
-}  // namespace Carbon::Testing
+}  // namespace Carbon

@@ -14,10 +14,11 @@ SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 -   [Member resolution](#member-resolution)
     -   [Package and namespace members](#package-and-namespace-members)
     -   [Types and facets](#types-and-facets)
+    -   [Tuple indexing](#tuple-indexing)
     -   [Values](#values)
     -   [Facet binding](#facet-binding)
         -   [Compile-time bindings](#compile-time-bindings)
-            -   [Lookup ambiguity](#lookup-ambiguity)
+        -   [Lookup ambiguity](#lookup-ambiguity)
 -   [`impl` lookup](#impl-lookup)
     -   [`impl` lookup for simple member access](#impl-lookup-for-simple-member-access)
     -   [`impl` lookup for compound member access](#impl-lookup-for-compound-member-access)
@@ -51,13 +52,17 @@ form:
 
 -   _member-access-expression_ ::= _expression_ `.` _word_
 -   _member-access-expression_ ::= _expression_ `->` _word_
+-   _member-access-expression_ ::= _expression_ `.` _integer-literal_
+-   _member-access-expression_ ::= _expression_ `->` _integer-literal_
 
 or a _compound_ member access of the form:
 
 -   _member-access-expression_ ::= _expression_ `.` `(` _expression_ `)`
 -   _member-access-expression_ ::= _expression_ `->` `(` _expression_ `)`
 
-Compound member accesses allow specifying a qualified member name.
+The _member name_ is the _word_, _integer-literal_, or the constant value of the
+parenthesized _expression_ in the member access expression. Compound member
+accesses allow specifying a qualified member name.
 
 For example:
 
@@ -99,7 +104,7 @@ simplicity.
 
 A member access expression is processed using the following steps:
 
--   First, the word or parenthesized expression to the right of the `.` is
+-   First, the member name to the right of the `.` is
     [resolved](#member-resolution) to a specific member entity, called `M` in
     this document.
 -   Then, if necessary, [`impl` lookup](#impl-lookup) is performed to map from a
@@ -116,24 +121,26 @@ A member access expression is processed using the following steps:
 The process of _member resolution_ determines which member `M` a member access
 expression is referring to.
 
-For a simple member access, the second operand is a word. If the first operand
-is a type, facet, package, or namespace, a search for the word is performed in
-the first operand. Otherwise, a search for the word is performed in the type of
-the first operand. In either case, the search must succeed. In the latter case,
-if the result is an instance member, then [instance binding](#instance-binding)
-is performed on the first operand.
+For a simple member access, if the first operand is a type, facet, package, or
+namespace, a search for the member name is performed in the first operand.
+Otherwise, a search for the member name is performed in the type of the first
+operand. In either case, the search must succeed. In the latter case, if the
+result is an instance member, then [instance binding](#instance-binding) is
+performed on the first operand.
 
 For a compound member access, the second operand is evaluated as a compile-time
 constant to determine the member being accessed. The evaluation is required to
-succeed and to result in a member of a type, interface, or non-type facet. If
-the result is an instance member, then [instance binding](#instance-binding) is
-always performed on the first operand.
+succeed and to result in a member of a type, interface, or non-type facet, or a
+value of an integer or integer literal type. If the result is an instance
+member, then [instance binding](#instance-binding) is always performed on the
+first operand.
 
 ### Package and namespace members
 
 If the first operand is a package or namespace name, the expression must be a
-simple member access expression. The _word_ must name a member of that package
-or namespace, and the result is the package or namespace member with that name.
+simple member access expression. The member name must be a _word_ that names a
+member of that package or namespace, and the result is the package or namespace
+member with that name.
 
 An expression that names a package or namespace can only be used as the first
 operand of a member access or as the target of an `alias` declaration.
@@ -215,9 +222,52 @@ class Avatar {
 Simple member access `(Avatar as Cowboy).Draw` finds the `Cowboy.Draw`
 implementation for `Avatar`, ignoring `Renderable.Draw`.
 
+### Tuple indexing
+
+Tuple types have member names that are *integer-literal*s, not *word*s.
+
+Each positional element of a tuple is considered to have a name that is the
+corresponding decimal integer: `0`, `1`, and so on. The spelling of the
+_integer-literal_ is required to exactly match one of those names, and the
+result of member resolution is an instance member that refers to the
+corresponding element of the tuple.
+
+```
+// ✅ `a == 42`.
+let a: i32 = (41, 42, 43).1;
+// ❌ Error: no tuple element named `0x1`.
+let b: i32 = (1, 2, 3).0x1;
+// ❌ Error: no tuple element named `2`.
+let c: i32 = (1, 2).2;
+
+var t: (i32, i32, i32) = (1, 2, 3);
+let p: (i32, i32, i32)* = &t;
+// ✅ `m == 3`.
+let m: i32 = p->2;
+```
+
+In a compound member access whose second operand is of integer or integer
+literal type, the first operand is required to be of tuple type or to extend a
+tuple type, otherwise member resolution fails. The second operand is required to
+be a non-negative template constant that is less than the number of tuple
+elements, and the result is an instance member that refers to the corresponding
+positional element of the tuple.
+
+```
+// ✅ `d == 43`.
+let d: i32 = (41, 42, 43).(1 + 1);
+// ✅ `e == 2`.
+let template e:! i32 = (1, 2, 3).(0x1);
+// ❌ Error: no tuple element with index 4.
+let f: i32 = (1, 2).(2 * 2);
+
+// ✅ `n == 3`.
+let n: i32 = p->(e);
+```
+
 ### Values
 
-If the first operand is not a type, package, namespace, or facet it does not
+If the first operand is not a type, package, namespace, or facet, it does not
 have member names, and a search is performed into the type of the first operand
 instead.
 
@@ -254,10 +304,9 @@ fn PrintPointTwice() {
 
 ### Facet binding
 
-If any of the above lookups would search for members of a
-[facet binding](/docs/design/generics/terminology.md#facet-binding) `T:! C`, it
-searches the facet `T as C` instead, treating the facet binding as an
-[archetype](/docs/design/generics/terminology.md#archetype).
+A search for members of a facet binding `T:! C` treats the facet binding as an
+[archetype](/docs/design/generics/terminology.md#archetype), and finds members
+of the facet `T` of facet type `C`.
 
 For example:
 
@@ -301,7 +350,8 @@ interface Renderable {
   fn Draw[self: Self]();
 }
 fn DrawChecked[T:! Renderable](c: T) {
-  // `Draw` resolves to `Renderable.Draw`.
+  // `Draw` resolves to `(T as Renderable).Draw` or
+  // `T.(Renderable.Draw)`.
   c.Draw();
 }
 
@@ -336,34 +386,56 @@ fn CallsDrawTemplate(c: Cowboy) {
 }
 ```
 
-> **TODO:** The behavior of this code depends on whether we decide to allow
-> class templates to be specialized:
->
-> ```carbon
-> class TemplateWrapper(template T:! type) {
->   var field: T;
-> }
-> fn G[template T:! type](x: TemplateWrapper(T)) -> T {
->   // 🤷 Not yet decided.
->   return x.field;
-> }
-> ```
->
-> If class specialization is allowed, then we cannot know the members of
-> `TemplateWrapper(T)` without knowing `T`, so this first lookup will find
-> nothing. In any case, the lookup will be performed again when `T` is known.
+Since we have decided to forbid specialization of class templates, see
+[proposal #2200: Template generics](https://github.com/carbon-language/carbon-lang/pull/2200),
+the compiler can assume the body of a templated class will be the same for all
+argument values:
+
+```carbon
+class TemplateWrapper(template T:! type) {
+  var field: T;
+}
+fn G[template T:! type](x: TemplateWrapper(T)) -> T {
+  // ✅ Allowed, finds `TemplateWrapper(T).field`.
+  return x.field;
+}
+```
+
+In addition, the lookup will be performed again when `T` is known. This allows
+cases where the lookup only succeeds for specific values of `T`:
+
+```carbon
+class HasField {
+  var field: i32;
+}
+class DerivingWrapper(template T:! type) {
+  extend base: T;
+}
+fn H[template T:! type](x: DerivingWrapper(T)) -> i32 {
+  // ✅ Allowed, but no name `field` found in template
+  // definition of `DerivingWrapper`.
+  return x.field;
+}
+fn CallH(a: DerivingWrapper(HasField),
+         b: DerivingWrapper(i32)) {
+  // ✅ Member `field` in base class found in instantiation.
+  var x: i32 = H(a);
+  // ❌ Error, no member `field` in type of `b`.
+  var y: i32 = H(b);
+}
+```
 
 **Note:** All lookups are done from a context where the values of any symbolic
 bindings that are in scope are unknown. Unlike for a template binding, the
 actual value of a symbolic binding never affects the result of member
 resolution.
 
-##### Lookup ambiguity
+#### Lookup ambiguity
 
 Multiple lookups can be performed when resolving a member access expression with
 a [template binding](#compile-time-bindings). We resolve this the same way as
 when looking in multiple interfaces that are
-[combined with `&`](/docs/design/generics/details.md#combining-interfaces-by-anding-type-of-types):
+[combined with `&`](/docs/design/generics/details.md#combining-interfaces-by-anding-facet-types):
 
 -   If more than one distinct member is found, after performing
     [`impl` lookup](#impl-lookup) if necessary, the lookup is ambiguous, and the
@@ -378,8 +450,8 @@ interface Renderable {
 }
 
 fn DrawTemplate2[template T:! Renderable](c: T) {
-  // Member lookup finds `Renderable.Draw` and the `Draw`
-  // member of the actual deduced value of `T`, if any.
+  // Member lookup finds `(T as Renderable).Draw` and the
+  // `Draw` member of the actual deduced value of `T`, if any.
   c.Draw();
 }
 

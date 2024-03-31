@@ -14,6 +14,9 @@ cc_library(
     hdrs = [
         "action.h",
     ],
+    # Running clang-tidy is slow, and explorer is currently feature frozen, so
+    # don't spend time linting it.
+    tags = ["no-clang-tidy"],
     deps = [
         ":dictionary",
         ":heap_allocation_interface",
@@ -39,6 +42,9 @@ cc_library(
     hdrs = [
         "action_stack.h",
     ],
+    # Running clang-tidy is slow, and explorer is currently feature frozen, so
+    # don't spend time linting it.
+    tags = ["no-clang-tidy"],
     deps = [
         ":action",
         ":stack",
@@ -54,6 +60,9 @@ cc_library(
 cc_library(
     name = "dictionary",
     hdrs = ["dictionary.h"],
+    # Running clang-tidy is slow, and explorer is currently feature frozen, so
+    # don't spend time linting it.
+    tags = ["no-clang-tidy"],
     deps = ["//explorer/base:arena"],
 )
 
@@ -61,6 +70,9 @@ cc_library(
     name = "exec_program",
     srcs = ["exec_program.cpp"],
     hdrs = ["exec_program.h"],
+    # Running clang-tidy is slow, and explorer is currently feature frozen, so
+    # don't spend time linting it.
+    tags = ["no-clang-tidy"],
     deps = [
         ":interpreter",
         ":resolve_control_flow",
@@ -81,6 +93,9 @@ cc_library(
     name = "heap",
     srcs = ["heap.cpp"],
     hdrs = ["heap.h"],
+    # Running clang-tidy is slow, and explorer is currently feature frozen, so
+    # don't spend time linting it.
+    tags = ["no-clang-tidy"],
     deps = [
         ":action",
         ":heap_allocation_interface",
@@ -99,6 +114,9 @@ cc_library(
 cc_library(
     name = "heap_allocation_interface",
     hdrs = ["heap_allocation_interface.h"],
+    # Running clang-tidy is slow, and explorer is currently feature frozen, so
+    # don't spend time linting it.
+    tags = ["no-clang-tidy"],
     deps = [
         "//common:error",
         "//explorer/ast",
@@ -116,6 +134,9 @@ cc_library(
     hdrs = [
         "interpreter.h",
     ],
+    # Running clang-tidy is slow, and explorer is currently feature frozen, so
+    # don't spend time linting it.
+    tags = ["no-clang-tidy"],
     deps = [
         ":action",
         ":action_stack",
@@ -141,6 +162,9 @@ cc_library(
     name = "resolve_control_flow",
     srcs = ["resolve_control_flow.cpp"],
     hdrs = ["resolve_control_flow.h"],
+    # Running clang-tidy is slow, and explorer is currently feature frozen, so
+    # don't spend time linting it.
+    tags = ["no-clang-tidy"],
     deps = [
         "//common:check",
         "//explorer/ast",
@@ -156,6 +180,9 @@ cc_library(
     name = "resolve_names",
     srcs = ["resolve_names.cpp"],
     hdrs = ["resolve_names.h"],
+    # Running clang-tidy is slow, and explorer is currently feature frozen, so
+    # don't spend time linting it.
+    tags = ["no-clang-tidy"],
     deps = [
         ":stack_space",
         "//common:check",
@@ -171,6 +198,9 @@ cc_library(
 cc_library(
     name = "stack",
     hdrs = ["stack.h"],
+    # Running clang-tidy is slow, and explorer is currently feature frozen, so
+    # don't spend time linting it.
+    tags = ["no-clang-tidy"],
     deps = ["//common:check"],
 )
 
@@ -182,6 +212,9 @@ cc_library(
     hdrs = [
         "pattern_analysis.h",
     ],
+    # Running clang-tidy is slow, and explorer is currently feature frozen, so
+    # don't spend time linting it.
+    tags = ["no-clang-tidy"],
     deps = [
         ":action",
         "//common:error",
@@ -205,6 +238,9 @@ cc_library(
         "matching_impl_set.h",
         "type_checker.h",
     ],
+    # Running clang-tidy is slow, and explorer is currently feature frozen, so
+    # don't spend time linting it.
+    tags = ["no-clang-tidy"],
     textual_hdrs = [
         "builtins.def",
     ],
@@ -240,6 +276,9 @@ cc_library(
     hdrs = [
         "resolve_unformed.h",
     ],
+    # Running clang-tidy is slow, and explorer is currently feature frozen, so
+    # don't spend time linting it.
+    tags = ["no-clang-tidy"],
     deps = [
         ":stack_space",
         "//common:check",
@@ -257,6 +296,9 @@ cc_library(
     name = "stack_space",
     srcs = ["stack_space.cpp"],
     hdrs = ["stack_space.h"],
+    # Running clang-tidy is slow, and explorer is currently feature frozen, so
+    # don't spend time linting it.
+    tags = ["no-clang-tidy"],
     deps = [
         "//common:check",
         "//common:error",
@@ -272,6 +314,9 @@ cc_library(
     hdrs = [
         "type_structure.h",
     ],
+    # Running clang-tidy is slow, and explorer is currently feature frozen, so
+    # don't spend time linting it.
+    tags = ["no-clang-tidy"],
     deps = [
         "//common:ostream",
         "//explorer/ast",
@@ -289,6 +334,9 @@ cc_library(
     hdrs = [
         "type_utils.h",
     ],
+    # Running clang-tidy is slow, and explorer is currently feature frozen, so
+    # don't spend time linting it.
+    tags = ["no-clang-tidy"],
     deps = [
         "//explorer/ast",
         "//explorer/base:nonnull",
@@ -304,8 +352,12 @@ cc_library(
     hdrs = [
         "pattern_match.h",
     ],
+    # Running clang-tidy is slow, and explorer is currently feature frozen, so
+    # don't spend time linting it.
+    tags = ["no-clang-tidy"],
     deps = [
         ":action",
+        ":type_utils",
         "//explorer/ast",
         "//explorer/base:arena",
         "//explorer/base:nonnull",

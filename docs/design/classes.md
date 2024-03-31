@@ -311,8 +311,8 @@ implemented in descendants.
 While it is typical for this case to be associated with single-level inheritance
 hierarchies, there are some cases where there is an interface at the root of a
 type hierarchy and polymorphic types as interior branches of the tree. The case
-of generic interfaces extending or requiring other interface would also be
-modeled by deeper inheritance hierarchies.
+of interfaces extending or requiring other interface would also be modeled by
+deeper inheritance hierarchies.
 
 An interface as base class needs to either have a virtual destructor or forbid
 deallocation.
@@ -325,7 +325,7 @@ that support dynamic dispatch are called _object-safe_, following
 
 -   They don't have a `Self` in the signature of a method in a contravariant
     position like a parameter.
--   They don't have free associated types or other associated items used in a
+-   They don't have free associated facets or other associated items used in a
     method signature.
 
 The restrictions on object-safe interfaces match the restrictions on base class
@@ -910,7 +910,7 @@ which must be an
 then match pattern '`self:` _type_' against it".
 
 If the method declaration also includes
-[deduced generic parameters](/docs/design/generics/overview.md#deduced-parameters),
+[deduced compile-time parameters](/docs/design/generics/overview.md#deduced-parameters),
 the `self` parameter must be in the same list in square brackets `[`...`]`. The
 `self` parameter may appear in any position in that list, as long as it appears
 after any names needed to describe its type.
@@ -929,7 +929,7 @@ class Point {
     return Math.Sqrt(self.x * self.x + self.y * self.y);
   }
 
-  fn Create(x: f32, y: f32) -> Point {
+  fn Make(x: f32, y: f32) -> Point {
     return {.x = x, .y = y};
   }
 
@@ -943,7 +943,7 @@ These are all parsed as if they were defined outside the class scope:
 ```carbon
 class Point {
   fn Distance[self: Self]() -> f32;
-  fn Create(x: f32, y: f32) -> Point;
+  fn Make(x: f32, y: f32) -> Point;
 
   var x: f32;
   var y: f32;
@@ -953,7 +953,7 @@ fn Point.Distance[self: Self]() -> f32 {
   return Math.Sqrt(self.x * self.x + self.y * self.y);
 }
 
-fn Point.Create(x: f32, y: f32) -> Point {
+fn Point.Make(x: f32, y: f32) -> Point {
   return {.x = x, .y = y};
 }
 ```
@@ -987,14 +987,14 @@ class Square {
 
   fn GetDoubled[self: Self]() -> Square {
     // ✅ OK: performs name lookup on `Square` for `Create`.
-    return Square.Create(self.size);
+    return Square.Make(self.size);
     // ✅ OK: performs unqualified name lookup within class scope for `Create`.
-    return Create(self.size);
+    return Make(self.size);
     // ✅ OK: performs name lookup on `self` for `Create`.
-    return self.Create(self.size);
+    return self.Make(self.size);
   }
 
-  fn Create(size: f32) -> Square;
+  fn Make(size: f32) -> Square;
 
   var size: f32;
 }
@@ -1174,11 +1174,11 @@ methods whose implementation may be overridden in a derived class.
 
 Only methods defined in the scope of the class definition may be virtual, not
 any defined in
-[external interface `impl` declarations](/docs/design/generics/details.md#external-impl).
+[out-of-line interface `impl` declarations](/docs/design/generics/details.md#out-of-line-impl).
 Interface methods may be implemented using virtual methods when the
-[impl is internal](/docs/design/generics/details.md#implementing-interfaces),
-and calls to those methods by way of the interface will do virtual dispatch just
-like a direct call to the method does.
+[impl is inline](/docs/design/generics/details.md#inline-impl), and calls to
+those methods by way of the interface will do virtual dispatch just like a
+direct call to the method does.
 
 [Class functions](#class-functions) may not be declared virtual.
 
@@ -1333,8 +1333,8 @@ base type.
 ```
 class MyDerivedType {
   extend base: MyBaseType;
-  fn Create() -> MyDerivedType {
-    return {.base = MyBaseType.Create(), .derived_field = ...};
+  fn Make() -> MyDerivedType {
+    return {.base = MyBaseType.Make(), .derived_field = ...};
   }
 }
 ```
@@ -1396,7 +1396,7 @@ partial facet type.
 
 ```
 base class MyBaseClass {
-  fn Create() -> partial Self {
+  fn Make() -> partial Self {
     return {.base_field_1 = ..., .base_field_2 = ...};
   }
   // ...
@@ -1406,7 +1406,7 @@ base class MyBaseClass {
 Extensible classes can be instantiated even from a partial facet value:
 
 ```
-var mbc: MyBaseClass = MyBaseClass.Create();
+var mbc: MyBaseClass = MyBaseClass.Make();
 ```
 
 The conversion from `partial MyBaseClass` to `MyBaseClass` only fills in the
@@ -1419,7 +1419,7 @@ be instantiated. Constructor functions for abstract classes should be marked
 
 ```
 abstract class MyAbstractClass {
-  protected fn Create() -> partial Self {
+  protected fn Make() -> partial Self {
     return {.base_field_1 = ..., .base_field_2 = ...};
   }
   // ...
@@ -1435,7 +1435,7 @@ function, there are two choices:
 
     ```
     base class MyBaseClass {
-      fn Create() -> Self {
+      fn Make() -> Self {
         returned var result: Self = {...};
         StoreMyPointerSomewhere(&result);
         return var;
@@ -1449,7 +1449,7 @@ function, there are two choices:
 
     ```
     abstract class MyAbstractClass {
-      protected fn Create() -> partial Self {
+      protected fn Make() -> partial Self {
         returned var result: partial Self = {...};
         // Careful! Pointer to object that isn't fully constructed!
         StoreMyPointerSomewhere(&result as Self*);
@@ -1463,27 +1463,27 @@ the class' immediate base type or the full type:
 
 ```
 abstract class MyAbstractClass {
-  protected fn Create() -> partial Self { ... }
+  protected fn Make() -> partial Self { ... }
 }
 
 // Base class returns a partial type
 base class Derived {
   extend base: MyAbstractClass;
-  protected fn Create() -> partial Self {
-    return {.base = MyAbstractClass.Create(), .derived_field = ...};
+  protected fn Make() -> partial Self {
+    return {.base = MyAbstractClass.Make(), .derived_field = ...};
   }
   ...
 }
 
 base class MyBaseClass {
-  fn Create() -> Self { ... }
+  fn Make() -> Self { ... }
 }
 
 // Base class returns a full type
 base class ExtensibleDerived {
   extend base: MyBaseClass;
-  fn Create() -> Self {
-    return {.base = MyBaseClass.Create(), .derived_field = ...};
+  fn Make() -> Self {
+    return {.base = MyBaseClass.Make(), .derived_field = ...};
   }
   ...
 }
@@ -1494,8 +1494,8 @@ And final classes will return a type that does not use the partial facet:
 ```
 class FinalDerived {
   extend base: MiddleDerived;
-  fn Create() -> Self {
-    return {.base = MiddleDerived.Create(), .derived_field = ...};
+  fn Make() -> Self {
+    return {.base = MiddleDerived.Make(), .derived_field = ...};
   }
   ...
 }
@@ -1595,7 +1595,7 @@ class MyDerivedClass {
 
 The properties of a type, whether type is abstract, base, or final, and whether
 the destructor is virtual or non-virtual, determines which
-[type-of-types](/docs/design/generics/terminology.md#facet-type) it satisfies.
+[facet types](/docs/design/generics/terminology.md#facet-type) it satisfies.
 
 -   Non-abstract classes are `Concrete`. This means you can create local and
     member variables of this type. `Concrete` types have destructors that are
@@ -1623,9 +1623,9 @@ conform to the decision on
 | final    | any         | yes        | yes         | yes            |
 
 The compiler automatically determines which of these
-[type-of-types](/docs/design/generics/terminology.md#facet-type) a given type
+[facet types](/docs/design/generics/terminology.md#facet-type) a given type
 satisfies. It is illegal to directly implement `Concrete`, `Deletable`, or
-`Destructible` directly. For more about these constraints, see
+`Destructible`. For more about these constraints, see
 ["destructor constraints" in the detailed generics design](/docs/design/generics/details.md#destructor-constraints).
 
 A pointer to `Deletable` types may be passed to the `Delete` method of the
@@ -1644,8 +1644,9 @@ interface Allocator {
 }
 ```
 
-To pass a pointer to a base class without a virtual destructor to a generic
-function expecting a `Deletable` type, use the `UnsafeAllowDelete`
+To pass a pointer to a base class without a virtual destructor to a
+checked-generic function expecting a `Deletable` type, use the
+`UnsafeAllowDelete`
 [type adapter](/docs/design/generics/details.md#adapting-types).
 
 ```
@@ -1670,7 +1671,7 @@ and not implemented in the current class.
 
 Types satisfy the
 [`TrivialDestructor`](/docs/design/generics/details.md#destructor-constraints)
-type-of-type if:
+facet type if:
 
 -   the class declaration does not define a destructor or the class defines the
     destructor with an empty body `{ }`,
@@ -1949,11 +1950,11 @@ We want four things so that Carbon's object-safe interfaces may interoperate
 with C++ abstract base classes without data members, matching the
 [interface as base class use case](#interface-as-base-class):
 
--   Ability to convert an object-safe interface (a type-of-type) into an
+-   Ability to convert an object-safe interface (a facet type) into an
     C++-compatible base class (a base type), maybe using
     `AsBaseClass(MyInterface)`.
 -   Ability to convert a C++ base class without data members (a base type) into
-    an object-safe interface (a type-of-type), maybe using `AsInterface(MyIBC)`.
+    an object-safe interface (a facet type), maybe using `AsInterface(MyIBC)`.
 -   Ability to convert a (thin) pointer to an abstract base class to a `DynPtr`
     of the corresponding interface.
 -   Ability to convert `DynPtr(MyInterface)` values to a proxy type that extends
@@ -1995,7 +1996,7 @@ This design directly supports Carbon classes inheriting from a single C++ class.
 ```
 class CarbonClass {
   extend base: Cpp.CPlusPlusClass;
-  fn Create() -> Self {
+  fn Make() -> Self {
     return {.base = Cpp.CPlusPlusClass(...), .other_fields = ...};
   }
   ...
@@ -2015,7 +2016,7 @@ C++ constructors to initialize their base class:
     class Base {
     public:
         virtual ~Base() {}
-        static auto Create() -> Base;
+        static auto Make() -> Base;
     };
 
     // In C++
@@ -2027,7 +2028,7 @@ C++ constructors to initialize their base class:
         // there appear to be implementation challenges with
         // removing them. This may require an extension to make work
         // reliably without an extraneous copy of the base subobject.
-        Derived() : Base(Base::Create()) {}
+        Derived() : Base(Base::Make()) {}
     };
     ```
 
@@ -2160,7 +2161,7 @@ implementations for [data classes](#data-classes) more generally. These
 implementations will typically subject to the criteria that all the data fields
 of the type must implement the interface. An example use case would be to say
 that a data class is serializable if all of its fields were. For this we will
-need a type-of-type for capturing that criteria, maybe something like
+need a facet type for capturing that criteria, maybe something like
 `DataFieldsImplement(MyInterface)`. The templated implementation will need some
 way of iterating through the fields so it can perform operations fieldwise. This
 feature should also implement the interfaces for any tuples whose fields satisfy
@@ -2239,7 +2240,7 @@ the type of `U.x`."
     -   [Allow functions to act as destructors](/proposals/p1154.md#allow-functions-to-act-as-destructors)
     -   [Allow private destructors](/proposals/p1154.md#allow-private-destructors)
     -   [Allow multiple conditional destructors](/proposals/p1154.md#allow-multiple-conditional-destructors)
-    -   [Type-of-type naming](/proposals/p1154.md#type-of-type-naming)
+    -   [Facet type naming](/proposals/p1154.md#type-of-type-naming)
     -   [Other approaches to extensible classes without vtables](/proposals/p1154.md#other-approaches-to-extensible-classes-without-vtables)
 
 -   [#2107: Clarify rules around `Self` and `.Self`](https://github.com/carbon-language/carbon-lang/pull/2107)

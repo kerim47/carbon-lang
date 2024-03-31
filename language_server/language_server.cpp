@@ -5,10 +5,11 @@
 #include "language_server/language_server.h"
 
 #include "clang-tools-extra/clangd/Protocol.h"
+#include "toolchain/base/value_store.h"
 #include "toolchain/diagnostics/null_diagnostics.h"
-#include "toolchain/lexer/tokenized_buffer.h"
-#include "toolchain/parser/parse_node_kind.h"
-#include "toolchain/parser/parse_tree.h"
+#include "toolchain/lex/lex.h"
+#include "toolchain/parse/node_kind.h"
+#include "toolchain/parse/parse.h"
 #include "toolchain/source/source_buffer.h"
 
 namespace Carbon::LS {
@@ -27,7 +28,7 @@ void LanguageServer::OnDidChangeTextDocument(
 }
 
 void LanguageServer::OnInitialize(
-    clang::clangd::NoParams const& client_capabilities,
+    clang::clangd::NoParams const& /*client_capabilities*/,
     clang::clangd::Callback<llvm::json::Object> cb) {
   llvm::json::Object capabilities{{"documentSymbolProvider", true},
                                   {"textDocumentSync", /*Full=*/1}};
@@ -75,12 +76,15 @@ auto LanguageServer::onReply(llvm::json::Value /*id*/,
   return true;
 }
 
-// Returns the text of first child of kind Parse::NodeKind::Name.
-static auto getName(Parse::Tree& p, Parse::Node node)
+// Returns the text of first child of kind Parse::NodeKind::IdentifierName.
+static auto GetIdentifierName(const SharedValueStores& value_stores,
+                              const Lex::TokenizedBuffer& tokens,
+                              const Parse::Tree& p, Parse::NodeId node)
     -> std::optional<llvm::StringRef> {
   for (auto ch : p.children(node)) {
-    if (p.node_kind(ch) == Parse::NodeKind::Name) {
-      return p.GetNodeText(ch);
+    if (p.node_kind(ch) == Parse::NodeKind::IdentifierName) {
+      return value_stores.identifiers().Get(
+          tokens.GetIdentifier(p.node_token(ch)));
     }
   }
   return std::nullopt;
@@ -89,19 +93,20 @@ static auto getName(Parse::Tree& p, Parse::Node node)
 void LanguageServer::OnDocumentSymbol(
     clang::clangd::DocumentSymbolParams const& params,
     clang::clangd::Callback<std::vector<clang::clangd::DocumentSymbol>> cb) {
+  SharedValueStores value_stores;
   llvm::vfs::InMemoryFileSystem vfs;
   auto file = params.textDocument.uri.file().str();
   vfs.addFile(file, /*mtime=*/0,
               llvm::MemoryBuffer::getMemBufferCopy(files_.at(file)));
 
-  auto buf = SourceBuffer::CreateFromFile(vfs, file);
-  auto lexed = TokenizedBuffer::Lex(*buf, NullDiagnosticConsumer());
-  auto parsed = Parse::Tree::Parse(lexed, NullDiagnosticConsumer(), nullptr);
+  auto buf = SourceBuffer::MakeFromFile(vfs, file, NullDiagnosticConsumer());
+  auto lexed = Lex::Lex(value_stores, *buf, NullDiagnosticConsumer());
+  auto parsed = Parse::Parse(lexed, NullDiagnosticConsumer(), nullptr);
   std::vector<clang::clangd::DocumentSymbol> result;
   for (const auto& node : parsed.postorder()) {
     clang::clangd::SymbolKind symbol_kind;
     switch (parsed.node_kind(node)) {
-      case Parse::NodeKind::FunctionDeclaration:
+      case Parse::NodeKind::FunctionDecl:
       case Parse::NodeKind::FunctionDefinitionStart:
         symbol_kind = clang::clangd::SymbolKind::Function;
         break;
@@ -119,7 +124,7 @@ void LanguageServer::OnDocumentSymbol(
         continue;
     }
 
-    if (auto name = getName(parsed, node)) {
+    if (auto name = GetIdentifierName(value_stores, lexed, parsed, node)) {
       auto tok = parsed.node_token(node);
       clang::clangd::Position pos{lexed.GetLineNumber(tok) - 1,
                                   lexed.GetColumnNumber(tok) - 1};

@@ -13,8 +13,6 @@ SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 -   [Overview](#overview)
 -   [Details](#details)
     -   [Examples](#examples)
--   [Open questions](#open-questions)
-    -   [Tuple indexing](#tuple-indexing)
 -   [Alternatives considered](#alternatives-considered)
 -   [References](#references)
 
@@ -51,7 +49,7 @@ pointer, and do not automatically chain with customized dereference interfaces.
 
 **Open question:** It's not clear that the lack of chaining is necessary, and it
 might be more expressive for the pointer type returned by the `Addr` methods to
-be an associated type with a default to allow types to produce custom
+be an associated facet with a default to allow types to produce custom
 pointer-like types on their indexing boundary and have them still be
 automatically dereferenced.
 
@@ -132,15 +130,6 @@ class Span(T:! type) {
   }
 }
 ```
-
-## Open questions
-
-### Tuple indexing
-
-It is not clear how tuple indexing will be modeled. When indexing a tuple, the
-index value must be a constant, and the type of the expression can depend on
-that value, but we don't yet have the tools to express those properties in a
-Carbon API.
 
 ## Alternatives considered
 

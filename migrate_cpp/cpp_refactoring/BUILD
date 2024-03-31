@@ -39,7 +39,7 @@ cc_library(
     hdrs = ["matcher_test_base.h"],
     deps = [
         ":matcher",
-        "@com_google_googletest//:gtest",
+        "@googletest//:gtest",
         "@llvm-project//clang:ast_matchers",
         "@llvm-project//clang:tooling",
         "@llvm-project//clang:tooling_core",
@@ -60,12 +60,13 @@ cc_library(
 
 cc_test(
     name = "fn_inserter_test",
+    size = "small",
     srcs = ["fn_inserter_test.cpp"],
     deps = [
         ":fn_inserter",
         ":matcher_test_base",
         "//testing/base:gtest_main",
-        "@com_google_googletest//:gtest",
+        "@googletest//:gtest",
         "@llvm-project//clang:tooling",
     ],
 )
@@ -82,12 +83,13 @@ cc_library(
 
 cc_test(
     name = "for_range_test",
+    size = "small",
     srcs = ["for_range_test.cpp"],
     deps = [
         ":for_range",
         ":matcher_test_base",
         "//testing/base:gtest_main",
-        "@com_google_googletest//:gtest",
+        "@googletest//:gtest",
         "@llvm-project//clang:tooling",
     ],
 )
@@ -106,12 +108,13 @@ cc_library(
 
 cc_test(
     name = "var_decl_test",
+    size = "small",
     srcs = ["var_decl_test.cpp"],
     deps = [
         ":matcher_test_base",
         ":var_decl",
         "//testing/base:gtest_main",
-        "@com_google_googletest//:gtest",
+        "@googletest//:gtest",
         "@llvm-project//clang:tooling",
     ],
 )

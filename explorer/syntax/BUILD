@@ -10,17 +10,24 @@ package(default_visibility = ["//explorer/parse_and_execute:__pkg__"])
 cc_library(
     name = "bison_wrap",
     hdrs = ["bison_wrap.h"],
+    # Running clang-tidy is slow, and explorer is currently feature frozen, so
+    # don't spend time linting it.
+    tags = ["no-clang-tidy"],
     deps = ["//common:check"],
 )
 
 cc_test(
     name = "parse_test",
+    size = "small",
     srcs = ["parse_test.cpp"],
+    # Running clang-tidy is slow, and explorer is currently feature frozen, so
+    # don't spend time linting it.
+    tags = ["no-clang-tidy"],
     deps = [
         ":syntax",
         "//explorer/base:arena",
         "//testing/base:gtest_main",
-        "@com_google_googletest//:gtest",
+        "@googletest//:gtest",
     ],
 )
 
@@ -29,9 +36,12 @@ cc_library(
     testonly = 1,
     srcs = ["parse_test_matchers_internal.h"],
     hdrs = ["parse_test_matchers.h"],
+    # Running clang-tidy is slow, and explorer is currently feature frozen, so
+    # don't spend time linting it.
+    tags = ["no-clang-tidy"],
     deps = [
         ":syntax",
-        "@com_google_googletest//:gtest",
+        "@googletest//:gtest",
         "@llvm-project//llvm:Support",
     ],
 )
@@ -41,6 +51,9 @@ cc_library(
     srcs = ["prelude.cpp"],
     hdrs = ["prelude.h"],
     data = ["//explorer:standard_libraries"],
+    # Running clang-tidy is slow, and explorer is currently feature frozen, so
+    # don't spend time linting it.
+    tags = ["no-clang-tidy"],
     deps = [
         ":syntax",
         "//common:error",
@@ -76,6 +89,9 @@ cc_library(
         "-Wno-unused-function",
         "-Wno-writable-strings",
     ],
+    # Running clang-tidy is slow, and explorer is currently feature frozen, so
+    # don't spend time linting it.
+    tags = ["no-clang-tidy"],
     visibility = [
         "//explorer/fuzzing:__pkg__",
         "//explorer/parse_and_execute:__pkg__",
@@ -140,18 +156,23 @@ py_library(
 
 py_test(
     name = "format_grammar_test",
+    size = "small",
     srcs = ["format_grammar_test.py"],
     deps = ["format_grammar_lib"],
 )
 
 cc_test(
     name = "unimplemented_example_test",
+    size = "small",
     srcs = ["unimplemented_example_test.cpp"],
+    # Running clang-tidy is slow, and explorer is currently feature frozen, so
+    # don't spend time linting it.
+    tags = ["no-clang-tidy"],
     deps = [
         ":parse_test_matchers",
         ":syntax",
         "//explorer/ast:ast_test_matchers",
         "//testing/base:gtest_main",
-        "@com_google_googletest//:gtest",
+        "@googletest//:gtest",
     ],
 )

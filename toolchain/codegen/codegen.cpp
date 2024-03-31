@@ -8,22 +8,13 @@
 
 #include "llvm/IR/LegacyPassManager.h"
 #include "llvm/MC/TargetRegistry.h"
-#include "llvm/Support/TargetSelect.h"
 #include "llvm/Target/TargetOptions.h"
 #include "llvm/TargetParser/Host.h"
 
 namespace Carbon {
 
-auto CodeGen::Create(llvm::Module& module, llvm::StringRef target_triple,
-                     llvm::raw_pwrite_stream& errors)
-    -> std::optional<CodeGen> {
-  // Initialize the target registry etc.
-  llvm::InitializeAllTargetInfos();
-  llvm::InitializeAllTargets();
-  llvm::InitializeAllTargetMCs();
-  llvm::InitializeAllAsmParsers();
-  llvm::InitializeAllAsmPrinters();
-
+auto CodeGen::Make(llvm::Module& module, llvm::StringRef target_triple,
+                   llvm::raw_pwrite_stream& errors) -> std::optional<CodeGen> {
   std::string error;
   const llvm::Target* target =
       llvm::TargetRegistry::lookupTarget(target_triple, error);
@@ -46,11 +37,11 @@ auto CodeGen::Create(llvm::Module& module, llvm::StringRef target_triple,
 }
 
 auto CodeGen::EmitAssembly(llvm::raw_pwrite_stream& out) -> bool {
-  return EmitCode(out, llvm::CodeGenFileType::CGFT_AssemblyFile);
+  return EmitCode(out, llvm::CodeGenFileType::AssemblyFile);
 }
 
 auto CodeGen::EmitObject(llvm::raw_pwrite_stream& out) -> bool {
-  return EmitCode(out, llvm::CodeGenFileType::CGFT_ObjectFile);
+  return EmitCode(out, llvm::CodeGenFileType::ObjectFile);
 }
 
 auto CodeGen::EmitCode(llvm::raw_pwrite_stream& out,

@@ -5,7 +5,9 @@
 #ifndef CARBON_COMMON_OSTREAM_H_
 #define CARBON_COMMON_OSTREAM_H_
 
+#include <concepts>
 #include <ostream>
+#include <type_traits>
 
 #include "llvm/Support/raw_os_ostream.h"
 // Libraries should include this header instead of raw_ostream.
@@ -50,6 +52,15 @@ class Printable {
   }
 };
 
+// Returns the result of printing the value.
+template <typename T>
+inline auto PrintToString(const T& val) -> std::string {
+  std::string str;
+  llvm::raw_string_ostream stream(str);
+  stream << val;
+  return str;
+}
+
 }  // namespace Carbon
 
 namespace llvm {
@@ -62,7 +73,7 @@ namespace llvm {
 //
 // To make this overload be unusually low priority, it is designed to take even
 // the `std::ostream` parameter as a template, and SFINAE disable itself unless
-// that template parameter matches `std::ostream`. This ensures that an
+// that template parameter is derived from `std::ostream`. This ensures that an
 // *explicit* operator will be preferred when provided. Some LLVM types may have
 // this, and so we want to prioritize accordingly.
 //
@@ -70,11 +81,9 @@ namespace llvm {
 // `raw_os_ostream.h` so that we wouldn't need to inject into LLVM's namespace,
 // but supporting `std::ostream` isn't a priority for LLVM so we handle it
 // locally instead.
-template <typename StreamT, typename ClassT,
-          typename = std::enable_if_t<
-              std::is_base_of_v<std::ostream, std::decay_t<StreamT>>>,
-          typename = std::enable_if_t<
-              !std::is_same_v<std::decay_t<ClassT>, raw_ostream>>>
+template <typename StreamT, typename ClassT>
+  requires std::derived_from<std::decay_t<StreamT>, std::ostream> &&
+           (!std::same_as<std::decay_t<ClassT>, raw_ostream>)
 auto operator<<(StreamT& standard_out, const ClassT& value) -> StreamT& {
   raw_os_ostream(standard_out) << value;
   return standard_out;

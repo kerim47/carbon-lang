@@ -8,7 +8,7 @@
 
 #include "testing/base/test_raw_ostream.h"
 
-namespace Carbon::Testing {
+namespace Carbon {
 namespace {
 
 // These are directly in the Carbon namespace because the defines require it.
@@ -19,7 +19,7 @@ CARBON_DEFINE_RAW_ENUM_CLASS(TestKind, uint8_t) {
 
 class TestKind : public CARBON_ENUM_BASE(TestKind) {
  public:
-#define CARBON_ENUM_BASE_TEST_KIND(Name) CARBON_ENUM_CONSTANT_DECLARATION(Name)
+#define CARBON_ENUM_BASE_TEST_KIND(Name) CARBON_ENUM_CONSTANT_DECL(Name)
 #include "common/enum_base_test.def"
 
   using EnumBase::AsInt;
@@ -45,7 +45,7 @@ TEST(EnumBaseTest, NamesAndConstants) {
 }
 
 TEST(EnumBaseTest, Printing) {
-  TestRawOstream stream;
+  Testing::TestRawOstream stream;
 
   TestKind kind = TestKind::Beep;
   stream << kind << " " << TestKind::Beep;
@@ -109,4 +109,4 @@ TEST(EnumBaseTest, IntConversion) {
 }
 
 }  // namespace
-}  // namespace Carbon::Testing
+}  // namespace Carbon

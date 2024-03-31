@@ -11,8 +11,8 @@
 #include "clang-tools-extra/clangd/Protocol.h"
 #include "clang-tools-extra/clangd/Transport.h"
 #include "clang-tools-extra/clangd/support/Function.h"
-#include "toolchain/lexer/tokenized_buffer.h"
-#include "toolchain/parser/parse_tree.h"
+#include "toolchain/lex/tokenized_buffer.h"
+#include "toolchain/parse/tree.h"
 #include "toolchain/source/source_buffer.h"
 
 namespace Carbon::LS {
@@ -38,8 +38,8 @@ class LanguageServer : public clang::clangd::Transport::MessageHandler,
   // LSPBinder::RawOutgoing
 
   // Send method call to client
-  void callMethod(llvm::StringRef Method, llvm::json::Value Params,
-                  clang::clangd::Callback<llvm::json::Value> Reply) override {
+  void callMethod(llvm::StringRef method, llvm::json::Value params,
+                  clang::clangd::Callback<llvm::json::Value> reply) override {
     // TODO: implement when needed
   }
 

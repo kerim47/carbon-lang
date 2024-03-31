@@ -8,49 +8,42 @@ Exceptions. See /LICENSE for license information.
 SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 """
 
-import argparse
 import subprocess
-
-TARGETS = {
-    "codegen": "//toolchain/codegen:codegen_file_test",
-    "driver": "//toolchain/driver:driver_file_test",
-    "lexer": "//toolchain/lexer:lexer_file_test",
-    "lowering": "//toolchain/lowering:lowering_file_test",
-    "parser": "//toolchain/parser:parse_tree_file_test",
-    "semantics": "//toolchain/semantics:semantics_file_test",
-}
+import sys
+from pathlib import Path
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "dirs",
-        # We don't use `choices` because it seems to conflict with "*".
-        nargs="*",
-        default=TARGETS.keys(),
-        help="Optionally restrict directories to update. Defaults to all.",
-    )
-    parsed_args = parser.parse_args()
-
-    # Deduplicate and validate arguments.
-    dirs = set(parsed_args.dirs)
-    invalid_dirs = dirs.difference(TARGETS.keys())
-    if invalid_dirs:
-        exit(
-            f"Invalid dirs: {', '.join(invalid_dirs)}; "
-            f"allowed dirs are {', '.join(TARGETS.keys())}."
-        )
-
-    # Build the targets together if there's more than one. Otherwise, we may as
-    # well build and run together.
-    if len(dirs) > 1:
-        subprocess.check_call(
-            ["bazel", "build", "-c", "opt"] + [TARGETS[d] for d in dirs]
-        )
-    for d in dirs:
-        subprocess.check_call(
-            ["bazel", "run", "-c", "opt", TARGETS[d], "--", "--autoupdate"]
-        )
+    argv = [
+        "bazel",
+        "run",
+        "-c",
+        "opt",
+        "--experimental_convenience_symlinks=ignore",
+        "--ui_event_filters=-info,-stdout,-stderr,-finish",
+        "//toolchain/testing:file_test",
+        "--",
+        "--autoupdate",
+    ]
+    # Support specifying tests to update, such as:
+    # ./autoupdate_testdata.py lex/**/*
+    if len(sys.argv) > 1:
+        repo_root = Path(__file__).resolve().parent.parent
+        file_tests = []
+        # Filter down to just test files.
+        for f in sys.argv[1:]:
+            if f.endswith(".carbon"):
+                path = str(Path(f).resolve().relative_to(repo_root))
+                if path.count("/testdata/"):
+                    file_tests.append(path)
+        if not file_tests:
+            sys.exit(
+                f"Args do not seem to be test files; for example, {sys.argv[1]}"
+            )
+        argv.append("--file_tests=" + ",".join(file_tests))
+    # Provide an empty stdin so that the driver tests that read from stdin
+    # don't block waiting for input. This matches the behavior of `bazel test`.
+    subprocess.run(argv, check=True)
 
 
 if __name__ == "__main__":

@@ -4,10 +4,14 @@
 
 load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library", "cc_test")
 load("//bazel/cc_toolchains:defs.bzl", "cc_env")
-load("//testing/file_test:rules.bzl", "file_test")
 load("//testing/fuzzing:rules.bzl", "cc_fuzz_test")
 
 package(default_visibility = ["//visibility:public"])
+
+filegroup(
+    name = "testdata",
+    data = glob(["testdata/**/*.carbon"]),
+)
 
 cc_library(
     name = "driver",
@@ -17,28 +21,20 @@ cc_library(
     deps = [
         "//common:command_line",
         "//common:vlog",
+        "//toolchain/base:value_store",
+        "//toolchain/check",
         "//toolchain/codegen",
         "//toolchain/diagnostics:diagnostic_emitter",
         "//toolchain/diagnostics:sorting_diagnostic_consumer",
-        "//toolchain/lexer:tokenized_buffer",
-        "//toolchain/lowering:lower_to_llvm",
-        "//toolchain/parser:parse_tree",
-        "//toolchain/semantics:semantics_ir",
-        "//toolchain/semantics:semantics_ir_formatter",
+        "//toolchain/lex",
+        "//toolchain/lower",
+        "//toolchain/parse",
+        "//toolchain/sem_ir:file",
+        "//toolchain/sem_ir:formatter",
         "//toolchain/source:source_buffer",
         "@llvm-project//llvm:Core",
         "@llvm-project//llvm:Support",
         "@llvm-project//llvm:TargetParser",
-    ],
-)
-
-file_test(
-    name = "driver_file_test",
-    srcs = ["driver_file_test.cpp"],
-    tests = glob(["testdata/**/*.carbon"]),
-    deps = [
-        ":driver_file_test_base",
-        "@llvm-project//llvm:Support",
     ],
 )
 
@@ -48,12 +44,13 @@ cc_test(
     srcs = ["driver_test.cpp"],
     deps = [
         ":driver",
+        "//common:all_llvm_targets",
         "//testing/base:gtest_main",
         "//testing/base:test_raw_ostream",
-        "//toolchain/base:yaml_test_helpers",
         "//toolchain/diagnostics:diagnostic_emitter",
-        "//toolchain/lexer:tokenized_buffer_test_helpers",
-        "@com_google_googletest//:gtest",
+        "//toolchain/lex:tokenized_buffer_test_helpers",
+        "//toolchain/testing:yaml_test_helpers",
+        "@googletest//:gtest",
         "@llvm-project//llvm:Object",
         "@llvm-project//llvm:Support",
     ],
@@ -71,24 +68,15 @@ cc_fuzz_test(
     ],
 )
 
-cc_library(
-    name = "driver_file_test_base",
-    testonly = 1,
-    hdrs = ["driver_file_test_base.h"],
-    deps = [
-        ":driver",
-        "//testing/file_test:file_test_base",
-        "@llvm-project//llvm:Support",
-    ],
-)
-
 cc_binary(
     name = "carbon",
     srcs = ["driver_main.cpp"],
     env = cc_env(),
     deps = [
         ":driver",
+        "//common:all_llvm_targets",
         "//common:bazel_working_dir",
+        "//common:init_llvm",
         "@llvm-project//llvm:Support",
     ],
 )

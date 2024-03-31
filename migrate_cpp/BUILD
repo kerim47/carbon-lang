@@ -47,11 +47,12 @@ cc_library(
 
 cc_test(
     name = "rewriter_test",
+    size = "small",
     srcs = ["rewriter_test.cpp"],
     deps = [
         ":rewriter",
         "//testing/base:gtest_main",
-        "@com_google_googletest//:gtest",
+        "@googletest//:gtest",
         "@llvm-project//clang:ast",
         "@llvm-project//clang:frontend",
         "@llvm-project//clang:tooling",

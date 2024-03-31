@@ -26,8 +26,8 @@ cc_library(
     deps = [
         ":carbon_cc_proto",
         "//common:error",
-        "@com_google_protobuf//:protobuf_headers",
         "@llvm-project//llvm:Support",
+        "@protobuf//:protobuf_headers",
     ],
 )
 
@@ -40,19 +40,20 @@ cc_binary(
         ":proto_to_carbon_lib",
         "//common:bazel_working_dir",
         "//common:error",
-        "@com_google_protobuf//:protobuf_headers",
         "@llvm-project//llvm:Support",
+        "@protobuf//:protobuf_headers",
     ],
 )
 
 cc_test(
     name = "proto_to_carbon_test",
+    size = "small",
     srcs = ["proto_to_carbon_test.cpp"],
     deps = [
         ":carbon_cc_proto",
         ":proto_to_carbon_lib",
         "//common:error",
         "//testing/base:gtest_main",
-        "@com_google_googletest//:gtest",
+        "@googletest//:gtest",
     ],
 )

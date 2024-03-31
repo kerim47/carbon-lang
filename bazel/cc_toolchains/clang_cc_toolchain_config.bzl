@@ -17,6 +17,7 @@ load(
     "variable_with_value",
     "with_feature_set",
 )
+load("@rules_cc//cc:defs.bzl", "cc_toolchain")
 load(
     ":clang_detected_variables.bzl",
     "clang_bindir",
@@ -99,11 +100,19 @@ def _impl(ctx):
         for name in [ACTION_NAMES.strip]
     ]
 
-    std_compile_flags = ["-std=c++17"]
+    std_compile_flags = ["-std=c++20"]
 
     # libc++ is only used on non-Windows platforms.
-    if ctx.attr.target_cpu != "x64_windows":
+    if ctx.attr.target_os != "windows":
         std_compile_flags.append("-stdlib=libc++")
+
+    # TODO: Regression that warns on anonymous unions; remove depending on fix.
+    # Sets the flag for unknown clang versions, which are assumed to be at head.
+    # https://github.com/llvm/llvm-project/issues/70384
+    if not clang_version or clang_version == 18:
+        missing_field_init_flags = ["-Wno-missing-field-initializers"]
+    else:
+        missing_field_init_flags = []
 
     default_flags_feature = feature(
         name = "default_flags",
@@ -132,13 +141,13 @@ def _impl(ctx):
                             "-Wself-assign",
                             "-Wimplicit-fallthrough",
                             "-Wctad-maybe-unsupported",
-                            "-Wnon-virtual-dtor",
+                            "-Wdelete-non-virtual-dtor",
                             # Don't warn on external code as we can't
                             # necessarily patch it easily.
                             "--system-header-prefix=external/",
                             # Compile actions shouldn't link anything.
                             "-c",
-                        ],
+                        ] + missing_field_init_flags,
                     ),
                     flag_group(
                         expand_if_available = "output_assembly_file",
@@ -459,6 +468,15 @@ def _impl(ctx):
         name = "sanitizer_common_flags",
         requires = [feature_set(["nonhost"])],
         implies = ["minimal_optimization_flags", "minimal_debug_info_flags", "preserve_call_stacks"],
+    )
+
+    # Separated from the feature above so it can only be included on platforms
+    # where it is supported. There is no negative flag in Clang so we can't just
+    # override it later.
+    sanitizer_static_lib_flags = feature(
+        name = "sanitizer_static_lib_flags",
+        enabled = True,
+        requires = [feature_set(["sanitizer_common_flags"])],
         flag_sets = [flag_set(
             actions = all_link_actions,
             flag_groups = [flag_group(flags = [
@@ -490,6 +508,20 @@ def _impl(ctx):
         )],
     )
 
+    # Likely due to being unable to use the static-linked and up-to-date
+    # sanitizer runtimes, we have to disable a number of sanitizers on macOS.
+    macos_asan_workarounds = feature(
+        name = "macos_sanitizer_workarounds",
+        enabled = True,
+        requires = [feature_set(["asan"])],
+        flag_sets = [flag_set(
+            actions = all_compile_actions + all_link_actions,
+            flag_groups = [flag_group(flags = [
+                "-fno-sanitize=function",
+            ])],
+        )],
+    )
+
     enable_asan_in_fastbuild = feature(
         name = "enable_asan_in_fastbuild",
         enabled = True,
@@ -509,14 +541,11 @@ def _impl(ctx):
         )],
     )
 
-    # With clang 14 and lower, we expect it to be built with libc++ debug
-    # support. In later LLVM versions, we expect the assertions define to work.
-    # clang 17 deprecates LIBCPP_ENABLE_ASSERTIONS in favor of HARDENED_MODE.
-    if clang_version and clang_version <= 14:
-        libcpp_debug_flags = ["-D_LIBCPP_DEBUG=1"]
-    elif clang_version and clang_version <= 16:
+    if clang_version and clang_version <= 16:
         libcpp_debug_flags = ["-D_LIBCPP_ENABLE_ASSERTIONS=1"]
     else:
+        # Clang 17 deprecates LIBCPP_ENABLE_ASSERTIONS in favor of
+        # HARDENED_MODE.
         libcpp_debug_flags = ["-D_LIBCPP_ENABLE_HARDENED_MODE=1"]
 
     linux_flags_feature = feature(
@@ -534,14 +563,8 @@ def _impl(ctx):
                             # Force the C++ standard library and runtime
                             # libraries to be statically linked. This works even
                             # with libc++ and libunwind despite the names,
-                            # provided libc++ is built with two CMake options:
+                            # provided libc++ is built with the CMake option:
                             # - `-DCMAKE_POSITION_INDEPENDENT_CODE=ON`
-                            # - `-DLIBCXX_STATICALLY_LINK_ABI_IN_STATIC_LIBRARY`
-                            # These are both required because of PR43604
-                            # (impacting at least Debian packages of libc++) and
-                            # PR46321 (impacting most other packages).
-                            # We recommend using Homebrew's LLVM install on
-                            # Linux.
                             "-static-libstdc++",
                             "-static-libgcc",
                             # Link with Clang's runtime library. This is always
@@ -554,6 +577,11 @@ def _impl(ctx):
                             "-L" + llvm_bindir + "/../lib",
                             # Link with pthread.
                             "-lpthread",
+                            # Force linking the static libc++abi archive here.
+                            # This *should* be linked automatically, but not
+                            # every release of LLVM correctly sets the CMake
+                            # flags to do so.
+                            "-l:libc++abi.a",
                         ],
                     ),
                 ]),
@@ -654,8 +682,7 @@ def _impl(ctx):
                             ),
                             flag_group(
                                 flags = ["-Wl,-whole-archive"],
-                                expand_if_true =
-                                    "libraries_to_link.is_whole_archive",
+                                expand_if_true = "libraries_to_link.is_whole_archive",
                             ),
                             flag_group(
                                 flags = ["%{libraries_to_link.object_files}"],
@@ -703,6 +730,137 @@ def _impl(ctx):
                             flag_group(
                                 flags = ["-Wl,-no-whole-archive"],
                                 expand_if_true = "libraries_to_link.is_whole_archive",
+                            ),
+                            flag_group(
+                                flags = ["-Wl,--end-lib"],
+                                expand_if_equal = variable_with_value(
+                                    name = "libraries_to_link.type",
+                                    value = "object_file_group",
+                                ),
+                            ),
+                        ],
+                        expand_if_available = "libraries_to_link",
+                    ),
+                    # Note that the params file comes at the end, after the
+                    # libraries to link above.
+                    flag_group(
+                        expand_if_available = "linker_param_file",
+                        flags = ["@%{linker_param_file}"],
+                    ),
+                ],
+            ),
+        ],
+    )
+
+    macos_link_libraries_feature = feature(
+        name = "macos_link_libraries",
+        enabled = True,
+        flag_sets = [
+            flag_set(
+                actions = all_link_actions,
+                flag_groups = [
+                    flag_group(
+                        flags = ["%{linkstamp_paths}"],
+                        iterate_over = "linkstamp_paths",
+                        expand_if_available = "linkstamp_paths",
+                    ),
+                    flag_group(
+                        iterate_over = "libraries_to_link",
+                        flag_groups = [
+                            flag_group(
+                                flags = ["-Wl,--start-lib"],
+                                expand_if_equal = variable_with_value(
+                                    name = "libraries_to_link.type",
+                                    value = "object_file_group",
+                                ),
+                            ),
+                            flag_group(
+                                iterate_over = "libraries_to_link.object_files",
+                                expand_if_equal = variable_with_value(
+                                    name = "libraries_to_link.type",
+                                    value = "object_file_group",
+                                ),
+                                flag_groups = [
+                                    flag_group(
+                                        flags = ["%{libraries_to_link.object_files}"],
+                                        expand_if_false = "libraries_to_link.is_whole_archive",
+                                    ),
+                                    flag_group(
+                                        flags = ["-Wl,-force_load,%{libraries_to_link.object_files}"],
+                                        expand_if_true = "libraries_to_link.is_whole_archive",
+                                    ),
+                                ],
+                            ),
+                            flag_group(
+                                expand_if_equal = variable_with_value(
+                                    name = "libraries_to_link.type",
+                                    value = "object_file",
+                                ),
+                                flag_groups = [
+                                    flag_group(
+                                        flags = ["%{libraries_to_link.name}"],
+                                        expand_if_false = "libraries_to_link.is_whole_archive",
+                                    ),
+                                    flag_group(
+                                        flags = ["-Wl,-force_load,%{libraries_to_link.name}"],
+                                        expand_if_true = "libraries_to_link.is_whole_archive",
+                                    ),
+                                ],
+                            ),
+                            flag_group(
+                                expand_if_equal = variable_with_value(
+                                    name = "libraries_to_link.type",
+                                    value = "interface_library",
+                                ),
+                                flag_groups = [
+                                    flag_group(
+                                        flags = ["%{libraries_to_link.name}"],
+                                        expand_if_false = "libraries_to_link.is_whole_archive",
+                                    ),
+                                    flag_group(
+                                        flags = ["-Wl,-force_load,%{libraries_to_link.name}"],
+                                        expand_if_true = "libraries_to_link.is_whole_archive",
+                                    ),
+                                ],
+                            ),
+                            flag_group(
+                                expand_if_equal = variable_with_value(
+                                    name = "libraries_to_link.type",
+                                    value = "static_library",
+                                ),
+                                flag_groups = [
+                                    flag_group(
+                                        flags = ["%{libraries_to_link.name}"],
+                                        expand_if_false = "libraries_to_link.is_whole_archive",
+                                    ),
+                                    flag_group(
+                                        flags = ["-Wl,-force_load,%{libraries_to_link.name}"],
+                                        expand_if_true = "libraries_to_link.is_whole_archive",
+                                    ),
+                                ],
+                            ),
+                            flag_group(
+                                flags = ["-l%{libraries_to_link.name}"],
+                                expand_if_equal = variable_with_value(
+                                    name = "libraries_to_link.type",
+                                    value = "dynamic_library",
+                                ),
+                            ),
+                            flag_group(
+                                flags = ["-l:%{libraries_to_link.name}"],
+                                expand_if_equal = variable_with_value(
+                                    name = "libraries_to_link.type",
+                                    value = "versioned_dynamic_library",
+                                ),
+                            ),
+                            flag_group(
+                                expand_if_true = "libraries_to_link.is_whole_archive",
+                                flag_groups = [
+                                    flag_group(
+                                        expand_if_false = "macos_flags",
+                                        flags = ["-Wl,-no-whole-archive"],
+                                    ),
+                                ],
                             ),
                             flag_group(
                                 flags = ["-Wl,--end-lib"],
@@ -815,10 +973,7 @@ def _impl(ctx):
     )
 
     # Now that we have built up the constituent feature definitions, compose
-    # them, including configuration based on the target platform. Currently,
-    # the target platform is configured with the "cpu" attribute for legacy
-    # reasons. Further, for legacy reasons the default is a Linux OS target and
-    # the x88-64 CPU name is "k8".
+    # them, including configuration based on the target platform.
 
     # First, define features that are simply used to configure others.
     features = [
@@ -828,9 +983,9 @@ def _impl(ctx):
         feature(name = "no_legacy_features"),
         feature(name = "nonhost"),
         feature(name = "opt"),
-        feature(name = "supports_dynamic_linker", enabled = ctx.attr.target_cpu == "k8"),
+        feature(name = "supports_dynamic_linker", enabled = ctx.attr.target_os == "linux"),
         feature(name = "supports_pic", enabled = True),
-        feature(name = "supports_start_end_lib", enabled = ctx.attr.target_cpu == "k8"),
+        feature(name = "supports_start_end_lib", enabled = ctx.attr.target_os == "linux"),
     ]
 
     # The order of the features determines the relative order of flags used.
@@ -855,35 +1010,39 @@ def _impl(ctx):
 
     # Next, add the features based on the target platform. Here too the
     # features are order sensitive. We also setup the sysroot here.
-    if ctx.attr.target_cpu == "k8":
+    if ctx.attr.target_os == "linux":
+        features.append(sanitizer_static_lib_flags)
         features.append(linux_flags_feature)
         sysroot = None
-    elif ctx.attr.target_cpu == "x64_windows":
+    elif ctx.attr.target_os == "windows":
         # TODO: Need to figure out if we need to add windows specific features
         # I think the .pdb debug files will need to be handled differently,
         # so that might be an example where a feature must be added.
         sysroot = None
-    elif ctx.attr.target_cpu in ["darwin", "darwin_arm64"]:
+    elif ctx.attr.target_os == "macos":
+        features.append(macos_asan_workarounds)
         features.append(macos_flags_feature)
         sysroot = sysroot_dir
-    elif ctx.attr.target_cpu == "freebsd":
+    elif ctx.attr.target_os == "freebsd":
+        features.append(sanitizer_static_lib_flags)
         features.append(freebsd_flags_feature)
         sysroot = sysroot_dir
     else:
-        fail("Unsupported target platform!")
+        fail("Unsupported target OS!")
 
-    # TODO: Need to support non-macOS ARM platforms here.
-    if ctx.attr.target_cpu == "darwin_arm64":
+    if ctx.attr.target_cpu in ["aarch64", "arm64"]:
         features.append(aarch64_cpu_flags)
     else:
         features.append(x86_64_cpu_flags)
 
     # Finally append the libraries to link and any final flags.
-    features += [
-        default_link_libraries_feature,
-        final_flags_feature,
-    ]
+    if ctx.attr.target_os == "macos":
+        features.append(macos_link_libraries_feature)
+    else:
+        features.append(default_link_libraries_feature)
+    features.append(final_flags_feature)
 
+    identifier = "local-{0}-{1}".format(ctx.attr.target_cpu, ctx.attr.target_os)
     return cc_common.create_cc_toolchain_config_info(
         ctx = ctx,
         features = features,
@@ -897,9 +1056,9 @@ def _impl(ctx):
 
         # This configuration only supports local non-cross builds so derive
         # everything from the target CPU selected.
-        toolchain_identifier = "local-" + ctx.attr.target_cpu,
-        host_system_name = "local-" + ctx.attr.target_cpu,
-        target_system_name = "local-" + ctx.attr.target_cpu,
+        toolchain_identifier = identifier,
+        host_system_name = identifier,
+        target_system_name = identifier,
         target_cpu = ctx.attr.target_cpu,
 
         # These attributes aren't meaningful at all so just use placeholder
@@ -917,6 +1076,52 @@ cc_toolchain_config = rule(
     implementation = _impl,
     attrs = {
         "target_cpu": attr.string(mandatory = True),
+        "target_os": attr.string(mandatory = True),
     },
     provides = [CcToolchainConfigInfo],
 )
+
+def cc_local_toolchain_suite(name, configs):
+    """Create a toolchain suite that uses the local Clang/LLVM install.
+
+    Args:
+        name: The name of the toolchain suite to produce.
+        configs: An array of (os, cpu) pairs to support in the toolchain.
+    """
+
+    # An empty filegroup to use when stubbing out the toolchains.
+    native.filegroup(
+        name = name + "_empty",
+        srcs = [],
+    )
+
+    # Create the individual local toolchains for each CPU.
+    for (os, cpu) in configs:
+        config_name = "{0}_{1}_{2}".format(name, os, cpu)
+        cc_toolchain_config(
+            name = config_name + "_config",
+            target_os = os,
+            target_cpu = cpu,
+        )
+        cc_toolchain(
+            name = config_name + "_tools",
+            all_files = ":" + name + "_empty",
+            ar_files = ":" + name + "_empty",
+            as_files = ":" + name + "_empty",
+            compiler_files = ":" + name + "_empty",
+            dwp_files = ":" + name + "_empty",
+            linker_files = ":" + name + "_empty",
+            objcopy_files = ":" + name + "_empty",
+            strip_files = ":" + name + "_empty",
+            supports_param_files = 1,
+            toolchain_config = ":" + config_name + "_config",
+            toolchain_identifier = config_name,
+        )
+        compatible_with = ["@platforms//cpu:" + cpu, "@platforms//os:" + os]
+        native.toolchain(
+            name = config_name,
+            exec_compatible_with = compatible_with,
+            target_compatible_with = compatible_with,
+            toolchain = config_name + "_tools",
+            toolchain_type = "@bazel_tools//tools/cpp:toolchain_type",
+        )
