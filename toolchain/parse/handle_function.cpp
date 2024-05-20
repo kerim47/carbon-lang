@@ -44,8 +44,8 @@ auto HandleFunctionSignatureFinish(Context& context) -> void {
       break;
     }
     case Lex::TokenKind::OpenCurlyBrace: {
-      context.AddNode(NodeKind::FunctionDefinitionStart, context.Consume(),
-                      state.subtree_start, state.has_error);
+      context.AddFunctionDefinitionStart(context.Consume(), state.subtree_start,
+                                         state.has_error);
       // Any error is recorded on the FunctionDefinitionStart.
       state.has_error = false;
       context.PushState(state, State::FunctionDefinitionFinish);
@@ -64,7 +64,7 @@ auto HandleFunctionSignatureFinish(Context& context) -> void {
       }
       auto semi = context.ConsumeIf(Lex::TokenKind::Semi);
       if (!semi && !state.has_error) {
-        context.EmitExpectedDeclSemi(context.tokens().GetKind(state.token));
+        context.DiagnoseExpectedDeclSemi(context.tokens().GetKind(state.token));
         state.has_error = true;
       }
       if (state.has_error) {
@@ -78,7 +78,7 @@ auto HandleFunctionSignatureFinish(Context& context) -> void {
     }
     default: {
       if (!state.has_error) {
-        context.EmitExpectedDeclSemiOrDefinition(Lex::TokenKind::Fn);
+        context.DiagnoseExpectedDeclSemiOrDefinition(Lex::TokenKind::Fn);
       }
       // Only need to skip if we've not already found a new line.
       bool skip_past_likely_end =
@@ -93,8 +93,8 @@ auto HandleFunctionSignatureFinish(Context& context) -> void {
 
 auto HandleFunctionDefinitionFinish(Context& context) -> void {
   auto state = context.PopState();
-  context.AddNode(NodeKind::FunctionDefinition, context.Consume(),
-                  state.subtree_start, state.has_error);
+  context.AddFunctionDefinition(context.Consume(), state.subtree_start,
+                                state.has_error);
 }
 
 }  // namespace Carbon::Parse

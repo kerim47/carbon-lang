@@ -85,7 +85,7 @@ import Implicit library "lib";
 // --- fail_not_found.carbon
 package NotFound api;
 
-// CHECK:STDERR: fail_not_found.carbon:[[@LINE+3]]:1: ERROR: Imported API not found.
+// CHECK:STDERR: fail_not_found.carbon:[[@LINE+3]]:1: ERROR: Imported API 'ImportNotFound' not found.
 // CHECK:STDERR: import ImportNotFound;
 // CHECK:STDERR: ^~~~~~
 import ImportNotFound;
@@ -93,57 +93,83 @@ import ImportNotFound;
 // CHECK:STDOUT: --- fail_main.carbon
 // CHECK:STDOUT:
 // CHECK:STDOUT: file {
-// CHECK:STDOUT:   package: <namespace> = namespace [template] {}
+// CHECK:STDOUT:   package: <namespace> = namespace [template] {
+// CHECK:STDOUT:     .Core = %Core
+// CHECK:STDOUT:   }
+// CHECK:STDOUT:   %Core: <namespace> = namespace [template] {}
 // CHECK:STDOUT: }
 // CHECK:STDOUT:
 // CHECK:STDOUT: --- fail_not_main.carbon
 // CHECK:STDOUT:
 // CHECK:STDOUT: file {
-// CHECK:STDOUT:   package: <namespace> = namespace [template] {}
+// CHECK:STDOUT:   package: <namespace> = namespace [template] {
+// CHECK:STDOUT:     .Core = %Core
+// CHECK:STDOUT:   }
+// CHECK:STDOUT:   %Core: <namespace> = namespace [template] {}
 // CHECK:STDOUT: }
 // CHECK:STDOUT:
 // CHECK:STDOUT: --- fail_this.carbon
 // CHECK:STDOUT:
 // CHECK:STDOUT: file {
-// CHECK:STDOUT:   package: <namespace> = namespace [template] {}
+// CHECK:STDOUT:   package: <namespace> = namespace [template] {
+// CHECK:STDOUT:     .Core = %Core
+// CHECK:STDOUT:   }
+// CHECK:STDOUT:   %Core: <namespace> = namespace [template] {}
 // CHECK:STDOUT: }
 // CHECK:STDOUT:
 // CHECK:STDOUT: --- fail_this_lib.carbon
 // CHECK:STDOUT:
 // CHECK:STDOUT: file {
-// CHECK:STDOUT:   package: <namespace> = namespace [template] {}
+// CHECK:STDOUT:   package: <namespace> = namespace [template] {
+// CHECK:STDOUT:     .Core = %Core
+// CHECK:STDOUT:   }
+// CHECK:STDOUT:   %Core: <namespace> = namespace [template] {}
 // CHECK:STDOUT: }
 // CHECK:STDOUT:
 // CHECK:STDOUT: --- implicit_api.carbon
 // CHECK:STDOUT:
 // CHECK:STDOUT: file {
-// CHECK:STDOUT:   package: <namespace> = namespace [template] {}
+// CHECK:STDOUT:   package: <namespace> = namespace [template] {
+// CHECK:STDOUT:     .Core = %Core
+// CHECK:STDOUT:   }
+// CHECK:STDOUT:   %Core: <namespace> = namespace [template] {}
 // CHECK:STDOUT: }
 // CHECK:STDOUT:
 // CHECK:STDOUT: --- fail_implicit.impl.carbon
 // CHECK:STDOUT:
 // CHECK:STDOUT: file {
-// CHECK:STDOUT:   package: <namespace> = namespace [template] {}
+// CHECK:STDOUT:   package: <namespace> = namespace [template] {
+// CHECK:STDOUT:     .Core = %Core
+// CHECK:STDOUT:   }
+// CHECK:STDOUT:   %Core: <namespace> = namespace [template] {}
 // CHECK:STDOUT: }
 // CHECK:STDOUT:
 // CHECK:STDOUT: --- implicit_lib_api.carbon
 // CHECK:STDOUT:
 // CHECK:STDOUT: file {
-// CHECK:STDOUT:   package: <namespace> = namespace [template] {}
+// CHECK:STDOUT:   package: <namespace> = namespace [template] {
+// CHECK:STDOUT:     .Core = %Core
+// CHECK:STDOUT:   }
+// CHECK:STDOUT:   %Core: <namespace> = namespace [template] {}
 // CHECK:STDOUT: }
 // CHECK:STDOUT:
 // CHECK:STDOUT: --- fail_implicit_lib.impl.carbon
 // CHECK:STDOUT:
 // CHECK:STDOUT: file {
-// CHECK:STDOUT:   package: <namespace> = namespace [template] {}
+// CHECK:STDOUT:   package: <namespace> = namespace [template] {
+// CHECK:STDOUT:     .Core = %Core
+// CHECK:STDOUT:   }
+// CHECK:STDOUT:   %Core: <namespace> = namespace [template] {}
 // CHECK:STDOUT: }
 // CHECK:STDOUT:
 // CHECK:STDOUT: --- fail_not_found.carbon
 // CHECK:STDOUT:
 // CHECK:STDOUT: file {
 // CHECK:STDOUT:   package: <namespace> = namespace [template] {
+// CHECK:STDOUT:     .Core = %Core
 // CHECK:STDOUT:     .ImportNotFound = %ImportNotFound
 // CHECK:STDOUT:   }
+// CHECK:STDOUT:   %Core: <namespace> = namespace [template] {}
 // CHECK:STDOUT:   %ImportNotFound: <namespace> = namespace [template] {
 // CHECK:STDOUT:     has_error
 // CHECK:STDOUT:   }

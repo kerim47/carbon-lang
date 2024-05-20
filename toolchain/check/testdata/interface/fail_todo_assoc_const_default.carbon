@@ -20,6 +20,7 @@ interface I {
 // CHECK:STDOUT:
 // CHECK:STDOUT: constants {
 // CHECK:STDOUT:   %.1: type = interface_type @I [template]
+// CHECK:STDOUT:   %Self: I = bind_symbolic_name Self 0 [symbolic]
 // CHECK:STDOUT:   %.2: type = tuple_type (type, type) [template]
 // CHECK:STDOUT:   %.3: type = tuple_type (i32, i32) [template]
 // CHECK:STDOUT:   %.4: type = assoc_entity_type @I, type [template]
@@ -31,24 +32,26 @@ interface I {
 // CHECK:STDOUT:
 // CHECK:STDOUT: file {
 // CHECK:STDOUT:   package: <namespace> = namespace [template] {
+// CHECK:STDOUT:     .Core = %Core
 // CHECK:STDOUT:     .I = %I.decl
 // CHECK:STDOUT:   }
+// CHECK:STDOUT:   %Core: <namespace> = namespace [template] {}
 // CHECK:STDOUT:   %I.decl: type = interface_decl @I [template = constants.%.1] {}
 // CHECK:STDOUT: }
 // CHECK:STDOUT:
 // CHECK:STDOUT: interface @I {
-// CHECK:STDOUT:   %Self: I = bind_symbolic_name Self [symbolic]
-// CHECK:STDOUT:   %.loc12_35.1: (type, type) = tuple_literal (i32, i32)
-// CHECK:STDOUT:   %.loc12_35.2: type = converted %.loc12_35.1, constants.%.3 [template = constants.%.3]
+// CHECK:STDOUT:   %Self: I = bind_symbolic_name Self 0 [symbolic = constants.%Self]
+// CHECK:STDOUT:   %.loc12_35: (type, type) = tuple_literal (i32, i32)
+// CHECK:STDOUT:   %.loc12_36.1: type = converted %.loc12_35, constants.%.3 [template = constants.%.3]
 // CHECK:STDOUT:   %T: type = assoc_const_decl T [template]
-// CHECK:STDOUT:   %.loc12_36: <associated type in I> = assoc_entity element0, %T [template = constants.%.5]
+// CHECK:STDOUT:   %.loc12_36.2: <associated type in I> = assoc_entity element0, %T [template = constants.%.5]
 // CHECK:STDOUT:   %.loc16_25: i32 = int_literal 42 [template = constants.%.6]
 // CHECK:STDOUT:   %N: i32 = assoc_const_decl N [template]
 // CHECK:STDOUT:   %.loc16_27: <associated i32 in I> = assoc_entity element1, %N [template = constants.%.8]
 // CHECK:STDOUT:
 // CHECK:STDOUT: !members:
 // CHECK:STDOUT:   .Self = %Self
-// CHECK:STDOUT:   .T = %.loc12_36
+// CHECK:STDOUT:   .T = %.loc12_36.2
 // CHECK:STDOUT:   .N = %.loc16_27
 // CHECK:STDOUT:   witness = (%T, %N)
 // CHECK:STDOUT: }

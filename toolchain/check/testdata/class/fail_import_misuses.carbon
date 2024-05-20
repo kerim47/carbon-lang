@@ -19,13 +19,13 @@ library "b" api;
 
 import library "a";
 
-// CHECK:STDERR: fail_b.carbon:[[@LINE+10]]:1: ERROR: Duplicate name being declared in the same scope.
+// CHECK:STDERR: fail_b.carbon:[[@LINE+10]]:1: ERROR: Only one library can declare `class Empty` without `extern`.
 // CHECK:STDERR: class Empty {
 // CHECK:STDERR: ^~~~~~~~~~~~~
 // CHECK:STDERR: fail_b.carbon:[[@LINE-5]]:1: In import.
 // CHECK:STDERR: import library "a";
 // CHECK:STDERR: ^~~~~~
-// CHECK:STDERR: a.carbon:4:1: Name is previously declared here.
+// CHECK:STDERR: a.carbon:4:1: Previously declared here.
 // CHECK:STDERR: class Empty {
 // CHECK:STDERR: ^~~~~~~~~~~~~
 // CHECK:STDERR:
@@ -53,9 +53,11 @@ var a: Incomplete;
 // CHECK:STDOUT:
 // CHECK:STDOUT: file {
 // CHECK:STDOUT:   package: <namespace> = namespace [template] {
+// CHECK:STDOUT:     .Core = %Core
 // CHECK:STDOUT:     .Empty = %Empty.decl
 // CHECK:STDOUT:     .Incomplete = %Incomplete.decl
 // CHECK:STDOUT:   }
+// CHECK:STDOUT:   %Core: <namespace> = namespace [template] {}
 // CHECK:STDOUT:   %Empty.decl: type = class_decl @Empty [template = constants.%Empty] {}
 // CHECK:STDOUT:   %Incomplete.decl: type = class_decl @Incomplete [template = constants.%Incomplete] {}
 // CHECK:STDOUT: }
@@ -80,15 +82,14 @@ var a: Incomplete;
 // CHECK:STDOUT:   package: <namespace> = namespace [template] {
 // CHECK:STDOUT:     .Empty = %import_ref.1
 // CHECK:STDOUT:     .Incomplete = %import_ref.2
+// CHECK:STDOUT:     .Core = %Core
 // CHECK:STDOUT:     .a = %a
 // CHECK:STDOUT:   }
-// CHECK:STDOUT:   %import_ref.1: type = import_ref ir1, inst+1, used [template = constants.%Empty]
-// CHECK:STDOUT:   %import_ref.2: type = import_ref ir1, inst+4, used [template = constants.%Incomplete]
-// CHECK:STDOUT:   %import_ref.3 = import_ref ir1, inst+2, unused
-// CHECK:STDOUT:   %.decl: type = class_decl @.1 [template = constants.%.2] {
-// CHECK:STDOUT:     %Empty.decl: invalid = class_decl @Empty [template = constants.%Empty] {}
-// CHECK:STDOUT:   }
-// CHECK:STDOUT:   %Incomplete.decl: invalid = class_decl @Incomplete [template = constants.%Incomplete] {}
+// CHECK:STDOUT:   %import_ref.1: type = import_ref ir1, inst+2, loaded [template = constants.%Empty]
+// CHECK:STDOUT:   %import_ref.2: type = import_ref ir1, inst+5, loaded [template = constants.%Incomplete]
+// CHECK:STDOUT:   %Core: <namespace> = namespace [template] {}
+// CHECK:STDOUT:   %import_ref.3 = import_ref ir1, inst+3, unloaded
+// CHECK:STDOUT:   %.decl: type = class_decl @.1 [template = constants.%.2] {}
 // CHECK:STDOUT:   %Incomplete.ref: type = name_ref Incomplete, %import_ref.2 [template = constants.%Incomplete]
 // CHECK:STDOUT:   %a.var: ref <error> = var a
 // CHECK:STDOUT:   %a: ref <error> = bind_name a, %a.var

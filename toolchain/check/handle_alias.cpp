@@ -39,7 +39,8 @@ auto HandleAlias(Context& context, Parse::AliasId /*node_id*/) -> bool {
 
   auto bind_name_id = context.bind_names().Add(
       {.name_id = name_context.name_id_for_new_inst(),
-       .enclosing_scope_id = name_context.enclosing_scope_id_for_new_inst()});
+       .enclosing_scope_id = name_context.enclosing_scope_id_for_new_inst(),
+       .bind_index = SemIR::CompileTimeBindIndex::Invalid});
 
   auto alias_id = SemIR::InstId::Invalid;
   if (expr_id.is_builtin()) {
@@ -68,7 +69,7 @@ auto HandleAlias(Context& context, Parse::AliasId /*node_id*/) -> bool {
 
   // Add the name of the binding to the current scope.
   context.decl_name_stack().PopScope();
-  context.decl_name_stack().AddNameToLookup(name_context, alias_id);
+  context.decl_name_stack().AddNameOrDiagnoseDuplicate(name_context, alias_id);
   return true;
 }
 

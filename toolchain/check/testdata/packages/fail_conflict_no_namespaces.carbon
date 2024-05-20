@@ -37,11 +37,19 @@ import library "var";
 
 // CHECK:STDOUT: --- fn.carbon
 // CHECK:STDOUT:
+// CHECK:STDOUT: constants {
+// CHECK:STDOUT:   %Foo: type = fn_type @Foo [template]
+// CHECK:STDOUT:   %.1: type = tuple_type () [template]
+// CHECK:STDOUT:   %struct: Foo = struct_value () [template]
+// CHECK:STDOUT: }
+// CHECK:STDOUT:
 // CHECK:STDOUT: file {
 // CHECK:STDOUT:   package: <namespace> = namespace [template] {
-// CHECK:STDOUT:     .Foo = %Foo
+// CHECK:STDOUT:     .Core = %Core
+// CHECK:STDOUT:     .Foo = %Foo.decl
 // CHECK:STDOUT:   }
-// CHECK:STDOUT:   %Foo: <function> = fn_decl @Foo [template] {}
+// CHECK:STDOUT:   %Core: <namespace> = namespace [template] {}
+// CHECK:STDOUT:   %Foo.decl: Foo = fn_decl @Foo [template = constants.%struct] {}
 // CHECK:STDOUT: }
 // CHECK:STDOUT:
 // CHECK:STDOUT: fn @Foo();
@@ -50,8 +58,10 @@ import library "var";
 // CHECK:STDOUT:
 // CHECK:STDOUT: file {
 // CHECK:STDOUT:   package: <namespace> = namespace [template] {
+// CHECK:STDOUT:     .Core = %Core
 // CHECK:STDOUT:     .Foo = %Foo
 // CHECK:STDOUT:   }
+// CHECK:STDOUT:   %Core: <namespace> = namespace [template] {}
 // CHECK:STDOUT:   %Foo.var: ref i32 = var Foo
 // CHECK:STDOUT:   %Foo: ref i32 = bind_name Foo, %Foo.var
 // CHECK:STDOUT: }
@@ -61,10 +71,10 @@ import library "var";
 // CHECK:STDOUT: file {
 // CHECK:STDOUT:   package: <namespace> = namespace [template] {
 // CHECK:STDOUT:     .Foo = %import_ref.1
+// CHECK:STDOUT:     .Core = %Core
 // CHECK:STDOUT:   }
-// CHECK:STDOUT:   %import_ref.1: <function> = import_ref ir1, inst+1, used [template = imports.%Foo]
-// CHECK:STDOUT:   %import_ref.2: ref i32 = import_ref ir2, inst+2, used
+// CHECK:STDOUT:   %import_ref.1 = import_ref ir1, inst+2, unloaded
+// CHECK:STDOUT:   %import_ref.2 = import_ref ir2, inst+3, unloaded
+// CHECK:STDOUT:   %Core: <namespace> = namespace [template] {}
 // CHECK:STDOUT: }
-// CHECK:STDOUT:
-// CHECK:STDOUT: fn @Foo();
 // CHECK:STDOUT:

@@ -44,6 +44,15 @@
 
 namespace Carbon::SemIR {
 
+// An adapted type declaration in a class, of the form `adapt T;`.
+struct AdaptDecl {
+  static constexpr auto Kind =
+      InstKind::AdaptDecl.Define<Parse::AdaptDeclId>("adapt_decl");
+
+  // No type_id; this is not a value.
+  TypeId adapted_type_id;
+};
+
 struct AddrOf {
   // TODO: Make Parse::NodeId more specific.
   static constexpr auto Kind =
@@ -141,6 +150,15 @@ struct ArrayType {
   TypeId element_type_id;
 };
 
+// Perform a no-op conversion to a compatible type.
+struct AsCompatible {
+  static constexpr auto Kind =
+      InstKind::AsCompatible.Define<Parse::NodeId>("as_compatible");
+
+  TypeId type_id;
+  InstId source_id;
+};
+
 // Performs a source-level initialization or assignment of `lhs_id` from
 // `rhs_id`. This finishes initialization of `lhs_id` in the same way as
 // `InitializeFrom`.
@@ -204,7 +222,8 @@ struct BaseDecl {
 // Common representation for both kinds of `bind*name` node.
 struct AnyBindName {
   // TODO: Also handle BindTemplateName once it exists.
-  static constexpr InstKind Kinds[] = {InstKind::BindAlias, InstKind::BindName,
+  static constexpr InstKind Kinds[] = {InstKind::BindAlias,
+                                       InstKind::BindExport, InstKind::BindName,
                                        InstKind::BindSymbolicName};
 
   InstKind kind;
@@ -216,6 +235,15 @@ struct AnyBindName {
 struct BindAlias {
   static constexpr auto Kind =
       InstKind::BindAlias.Define<Parse::NodeId>("bind_alias");
+
+  TypeId type_id;
+  BindNameId bind_name_id;
+  InstId value_id;
+};
+
+struct BindExport {
+  static constexpr auto Kind =
+      InstKind::BindExport.Define<Parse::NodeId>("bind_export");
 
   TypeId type_id;
   BindNameId bind_name_id;
@@ -384,11 +412,11 @@ struct ClassInit {
 
 struct ClassType {
   static constexpr auto Kind =
-      InstKind::ClassType.Define<Parse::AnyClassDeclId>("class_type");
+      InstKind::ClassType.Define<Parse::NodeId>("class_type");
 
   TypeId type_id;
   ClassId class_id;
-  // TODO: Once we support generic classes, include the class's arguments here.
+  InstBlockId args_id = InstBlockId::Invalid;
 };
 
 struct ConstType {
@@ -437,6 +465,24 @@ struct FieldDecl {
   ElementIndex index;
 };
 
+struct FloatLiteral {
+  static constexpr auto Kind =
+      InstKind::FloatLiteral.Define<Parse::RealLiteralId>("float_literal");
+
+  TypeId type_id;
+  FloatId float_id;
+};
+
+struct FloatType {
+  static constexpr auto Kind =
+      InstKind::FloatType.Define<Parse::NodeId>("float_type");
+
+  TypeId type_id;
+  // TODO: Consider adding a more compact way of representing either a small
+  // float bit width or an inst_id.
+  InstId bit_width_id;
+};
+
 struct FunctionDecl {
   static constexpr auto Kind =
       InstKind::FunctionDecl.Define<Parse::AnyFunctionDeclId>("fn_decl");
@@ -446,6 +492,26 @@ struct FunctionDecl {
   // The declaration block, containing the function declaration's parameters and
   // their types.
   InstBlockId decl_block_id;
+};
+
+struct FunctionType {
+  static constexpr auto Kind =
+      InstKind::FunctionType.Define<Parse::AnyFunctionDeclId>("fn_type");
+
+  TypeId type_id;
+  FunctionId function_id;
+};
+
+// The type of the name of a generic class. The corresponding value is an empty
+// `StructValue`.
+struct GenericClassType {
+  // This is only ever created as a constant, so doesn't have a location.
+  static constexpr auto Kind =
+      InstKind::GenericClassType.Define<Parse::InvalidNodeId>(
+          "generic_class_type");
+
+  TypeId type_id;
+  ClassId class_id;
 };
 
 struct ImplDecl {
@@ -461,34 +527,35 @@ struct ImplDecl {
 
 // Common representation for all kinds of `ImportRef*` node.
 struct AnyImportRef {
-  static constexpr InstKind Kinds[] = {InstKind::ImportRefUnused,
-                                       InstKind::ImportRefUsed};
+  static constexpr InstKind Kinds[] = {InstKind::ImportRefUnloaded,
+                                       InstKind::ImportRefLoaded};
 
   InstKind kind;
-  ImportIRId ir_id;
-  InstId inst_id;
+  ImportIRInstId import_ir_inst_id;
+  // A BindName is currently only set on directly imported names. It is not
+  // generically available.
+  BindNameId bind_name_id;
 };
 
-// An imported entity that hasn't yet been referenced. If referenced, it should
-// turn into an ImportRefUsed.
-struct ImportRefUnused {
+// An imported entity that is not yet been loaded.
+struct ImportRefUnloaded {
   // No parse node: any parse node logic must use the referenced IR.
   static constexpr auto Kind =
-      InstKind::ImportRefUnused.Define<Parse::InvalidNodeId>("import_ref");
+      InstKind::ImportRefUnloaded.Define<Parse::InvalidNodeId>("import_ref");
 
-  ImportIRId ir_id;
-  InstId inst_id;
+  ImportIRInstId import_ir_inst_id;
+  BindNameId bind_name_id;
 };
 
-// An imported entity that has a reference, and thus should be emitted.
-struct ImportRefUsed {
+// A imported entity that is loaded, and may be used.
+struct ImportRefLoaded {
   // No parse node: any parse node logic must use the referenced IR.
   static constexpr auto Kind =
-      InstKind::ImportRefUsed.Define<Parse::InvalidNodeId>("import_ref");
+      InstKind::ImportRefLoaded.Define<Parse::InvalidNodeId>("import_ref");
 
   TypeId type_id;
-  ImportIRId ir_id;
-  InstId inst_id;
+  ImportIRInstId import_ir_inst_id;
+  BindNameId bind_name_id;
 };
 
 // Finalizes the initialization of `dest_id` from the initializer expression
@@ -558,6 +625,17 @@ struct IntLiteral {
   IntId int_id;
 };
 
+struct IntType {
+  static constexpr auto Kind =
+      InstKind::IntType.Define<Parse::NodeId>("int_type");
+
+  TypeId type_id;
+  IntKind int_kind;
+  // TODO: Consider adding a more compact way of representing either a small
+  // unsigned integer bit width or an inst_id.
+  InstId bit_width_id;
+};
+
 struct NameRef {
   // TODO: Make Parse::NodeId more specific.
   static constexpr auto Kind =
@@ -618,6 +696,8 @@ struct ReturnExpr {
 
   // This is a statement, so has no type.
   InstId expr_id;
+  // The return slot, if any. Invalid if we're not returning through memory.
+  InstId dest_id;
 };
 
 struct SpliceBlock {

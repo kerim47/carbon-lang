@@ -38,7 +38,7 @@ static auto BuildInterfaceDecl(Context& context,
 
   // Process modifiers.
   CheckAccessModifiersOnDecl(context, Lex::TokenKind::Interface,
-                             name_context.target_scope_id);
+                             name_context.enclosing_scope_id);
   LimitModifiersOnDecl(context, KeywordModifierSet::Access,
                        Lex::TokenKind::Interface);
 
@@ -144,7 +144,8 @@ auto HandleInterfaceDefinitionStart(Context& context,
     // the `value_id` on the `BindSymbolicName`.
     auto bind_name_id = context.bind_names().Add(
         {.name_id = SemIR::NameId::SelfType,
-         .enclosing_scope_id = interface_info.scope_id});
+         .enclosing_scope_id = interface_info.scope_id,
+         .bind_index = context.scope_stack().AddCompileTimeBinding()});
     interface_info.self_param_id =
         context.AddInst({Parse::NodeId::Invalid,
                          SemIR::BindSymbolicName{self_type_id, bind_name_id,
@@ -173,8 +174,6 @@ auto HandleInterfaceDefinition(Context& context,
   auto interface_id =
       context.node_stack().Pop<Parse::NodeKind::InterfaceDefinitionStart>();
   context.inst_block_stack().Pop();
-  context.scope_stack().Pop();
-  context.decl_name_stack().PopScope();
   auto associated_entities_id = context.args_type_info_stack().Pop();
 
   // The interface type is now fully defined.
@@ -182,6 +181,7 @@ auto HandleInterfaceDefinition(Context& context,
   if (!interface_info.associated_entities_id.is_valid()) {
     interface_info.associated_entities_id = associated_entities_id;
   }
+  // The decl_name_stack and scopes are popped by `ProcessNodeIds`.
   return true;
 }
 

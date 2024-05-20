@@ -45,23 +45,35 @@ fn NS();
 // CHECK:STDOUT:
 // CHECK:STDOUT: file {
 // CHECK:STDOUT:   package: <namespace> = namespace [template] {
+// CHECK:STDOUT:     .Core = %Core
 // CHECK:STDOUT:     .NS = %NS
 // CHECK:STDOUT:   }
+// CHECK:STDOUT:   %Core: <namespace> = namespace [template] {}
 // CHECK:STDOUT:   %NS: <namespace> = namespace [template] {}
 // CHECK:STDOUT: }
 // CHECK:STDOUT:
 // CHECK:STDOUT: --- fail_conflict.carbon
 // CHECK:STDOUT:
+// CHECK:STDOUT: constants {
+// CHECK:STDOUT:   %.1: type = fn_type @.1 [template]
+// CHECK:STDOUT:   %.2: type = tuple_type () [template]
+// CHECK:STDOUT:   %struct.1: <invalid> = struct_value () [template]
+// CHECK:STDOUT:   %.3: type = fn_type @.2 [template]
+// CHECK:STDOUT:   %struct.2: <invalid> = struct_value () [template]
+// CHECK:STDOUT: }
+// CHECK:STDOUT:
 // CHECK:STDOUT: file {
 // CHECK:STDOUT:   package: <namespace> = namespace [template] {
 // CHECK:STDOUT:     .NS = %NS
+// CHECK:STDOUT:     .Core = %Core
 // CHECK:STDOUT:   }
-// CHECK:STDOUT:   %import_ref: <namespace> = import_ref ir1, inst+1, used
+// CHECK:STDOUT:   %import_ref: <namespace> = import_ref ir1, inst+2, loaded
 // CHECK:STDOUT:   %NS: <namespace> = namespace %import_ref, [template] {}
+// CHECK:STDOUT:   %Core: <namespace> = namespace [template] {}
 // CHECK:STDOUT:   %.loc8: <namespace> = namespace [template] {}
-// CHECK:STDOUT:   %.loc17: <function> = fn_decl @.1 [template] {}
+// CHECK:STDOUT:   %.decl.loc17: <invalid> = fn_decl @.1 [template = constants.%struct.1] {}
 // CHECK:STDOUT:   %.loc21: <namespace> = namespace [template] {}
-// CHECK:STDOUT:   %.loc29: <function> = fn_decl @.2 [template] {}
+// CHECK:STDOUT:   %.decl.loc29: <invalid> = fn_decl @.2 [template = constants.%struct.2] {}
 // CHECK:STDOUT: }
 // CHECK:STDOUT:
 // CHECK:STDOUT: fn @.1();

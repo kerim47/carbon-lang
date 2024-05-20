@@ -4,11 +4,19 @@
 
 #include "toolchain/check/check.h"
 
+#include <variant>
+
 #include "common/check.h"
+#include "common/error.h"
+#include "common/variant_helpers.h"
+#include "common/vlog.h"
 #include "toolchain/base/pretty_stack_trace_function.h"
 #include "toolchain/check/context.h"
 #include "toolchain/check/diagnostic_helpers.h"
+#include "toolchain/check/function.h"
+#include "toolchain/check/handle.h"
 #include "toolchain/check/import.h"
+#include "toolchain/check/import_ref.h"
 #include "toolchain/diagnostics/diagnostic.h"
 #include "toolchain/diagnostics/diagnostic_emitter.h"
 #include "toolchain/lex/token_kind.h"
@@ -20,11 +28,6 @@
 #include "toolchain/sem_ir/typed_insts.h"
 
 namespace Carbon::Check {
-
-// Parse node handlers. Returns false for unrecoverable errors.
-#define CARBON_PARSE_NODE_KIND(Name) \
-  auto Handle##Name(Context& context, Parse::Name##Id node_id) -> bool;
-#include "toolchain/parse/node_kind.def"
 
 // Handles the transformation of a SemIRLoc to a DiagnosticLoc.
 //
@@ -48,24 +51,22 @@ class SemIRDiagnosticConverter : public DiagnosticConverter<SemIRLoc> {
 
     // Notes an import on the diagnostic and updates cursors to point at the
     // imported IR.
-    auto follow_import_ref = [&](SemIR::ImportIRId ir_id,
-                                 SemIR::InstId inst_id) {
-      const auto& import_ir = cursor_ir->import_irs().Get(ir_id);
+    auto follow_import_ref = [&](SemIR::ImportIRInstId import_ir_inst_id) {
+      auto import_ir_inst = cursor_ir->import_ir_insts().Get(import_ir_inst_id);
+      const auto& import_ir = cursor_ir->import_irs().Get(import_ir_inst.ir_id);
       auto context_loc = ConvertLocInFile(cursor_ir, import_ir.node_id,
                                           loc.token_only, context_fn);
       CARBON_DIAGNOSTIC(InImport, Note, "In import.");
       context_fn(context_loc, InImport);
       cursor_ir = import_ir.sem_ir;
-      cursor_inst_id = inst_id;
+      cursor_inst_id = import_ir_inst.inst_id;
     };
 
     // If the location is is an import, follows it and returns nullopt.
     // Otherwise, it's a parse node, so return the final location.
     auto handle_loc = [&](SemIR::LocId loc_id) -> std::optional<DiagnosticLoc> {
       if (loc_id.is_import_ir_inst_id()) {
-        auto import_ir_inst =
-            cursor_ir->import_ir_insts().Get(loc_id.import_ir_inst_id());
-        follow_import_ref(import_ir_inst.ir_id, import_ir_inst.inst_id);
+        follow_import_ref(loc_id.import_ir_inst_id());
         return std::nullopt;
       } else {
         // Parse nodes always refer to the current IR.
@@ -85,30 +86,30 @@ class SemIRDiagnosticConverter : public DiagnosticConverter<SemIRLoc> {
     }
 
     while (true) {
-      // If the parse node is valid, use it for the location.
-      if (auto loc_id = cursor_ir->insts().GetLocId(cursor_inst_id);
-          loc_id.is_valid()) {
-        if (auto diag_loc = handle_loc(loc_id)) {
-          return *diag_loc;
-        }
-        continue;
-      }
-
-      // If the parse node was invalid, recurse through import references when
-      // possible.
-      if (auto import_ref = cursor_ir->insts().TryGetAs<SemIR::AnyImportRef>(
-              cursor_inst_id)) {
-        follow_import_ref(import_ref->ir_id, import_ref->inst_id);
-        continue;
-      }
-
-      // If a namespace has an instruction for an import, switch to looking at
-      // it.
-      if (auto ns =
-              cursor_ir->insts().TryGetAs<SemIR::Namespace>(cursor_inst_id)) {
-        if (ns->import_id.is_valid()) {
-          cursor_inst_id = ns->import_id;
+      if (cursor_inst_id.is_valid()) {
+        auto cursor_inst = cursor_ir->insts().Get(cursor_inst_id);
+        if (auto bind_ref = cursor_inst.TryAs<SemIR::BindExport>();
+            bind_ref && bind_ref->value_id.is_valid()) {
+          cursor_inst_id = bind_ref->value_id;
           continue;
+        }
+
+        // If the parse node is valid, use it for the location.
+        if (auto loc_id = cursor_ir->insts().GetLocId(cursor_inst_id);
+            loc_id.is_valid()) {
+          if (auto diag_loc = handle_loc(loc_id)) {
+            return *diag_loc;
+          }
+          continue;
+        }
+
+        // If a namespace has an instruction for an import, switch to looking at
+        // it.
+        if (auto ns = cursor_inst.TryAs<SemIR::Namespace>()) {
+          if (ns->import_id.is_valid()) {
+            cursor_inst_id = ns->import_id;
+            continue;
+          }
         }
       }
 
@@ -170,13 +171,15 @@ struct UnitInfo {
     llvm::SmallVector<Import> imports;
   };
 
-  explicit UnitInfo(Unit& unit)
-      : unit(&unit),
+  explicit UnitInfo(SemIR::CheckIRId check_ir_id, Unit& unit)
+      : check_ir_id(check_ir_id),
+        unit(&unit),
         converter(unit.tokens, unit.tokens->source().filename(),
                   unit.parse_tree),
         err_tracker(*unit.consumer),
         emitter(converter, err_tracker) {}
 
+  SemIR::CheckIRId check_ir_id;
   Unit* unit;
 
   // Emitter information.
@@ -184,10 +187,10 @@ struct UnitInfo {
   ErrorTrackingDiagnosticConsumer err_tracker;
   DiagnosticEmitter<Parse::NodeLoc> emitter;
 
-  // A map of package names to outgoing imports. If the
-  // import's target isn't available, the unit will be nullptr to assist with
-  // name lookup. Invalid imports (for example, `import Main;`) aren't added
-  // because they won't add identifiers to name lookup.
+  // A map of package names to outgoing imports. If a package includes
+  // unavailable library imports, it has an entry with has_load_error set.
+  // Invalid imports (for example, `import Main;`) aren't added because they
+  // won't add identifiers to name lookup.
   llvm::DenseMap<IdentifierId, PackageImports> package_imports_map;
 
   // The remaining number of imports which must be checked before this unit can
@@ -197,19 +200,106 @@ struct UnitInfo {
   // A list of incoming imports. This will be empty for `impl` files, because
   // imports only touch `api` files.
   llvm::SmallVector<UnitInfo*> incoming_imports;
+
+  // The corresponding `api` unit if this is an `impl` file. The entry should
+  // also be in the corresponding `PackageImports`.
+  UnitInfo* api_for_impl = nullptr;
 };
 
+// Imports the current package.
+static auto ImportCurrentPackage(Context& context, UnitInfo& unit_info,
+                                 int total_ir_count,
+                                 SemIR::InstId package_inst_id,
+                                 SemIR::TypeId namespace_type_id) -> void {
+  // Add imports from the current package.
+  auto self_import = unit_info.package_imports_map.find(IdentifierId::Invalid);
+  if (self_import == unit_info.package_imports_map.end()) {
+    // Push the scope; there are no names to add.
+    context.scope_stack().Push(package_inst_id, SemIR::NameScopeId::Package);
+    return;
+  }
+
+  // Track whether an IR was imported in full, including `export import`. This
+  // distinguishes from IRs that are indirectly added without all names being
+  // exported to this IR.
+  llvm::SmallVector<bool> imported_irs(total_ir_count, false);
+  if (self_import->second.has_load_error) {
+    context.name_scopes().Get(SemIR::NameScopeId::Package).has_error = true;
+  }
+
+  for (const auto& import : self_import->second.imports) {
+    const auto& import_sem_ir = **import.unit_info->unit->sem_ir;
+
+    auto& imported_ir = imported_irs[import_sem_ir.check_ir_id().index];
+    if (!imported_ir) {
+      imported_ir = true;
+
+      // Import the IR and its exported imports.
+      ImportLibraryFromCurrentPackage(context, namespace_type_id,
+                                      import.names.node_id, import_sem_ir,
+                                      import.names.is_export);
+
+      for (const auto& indirect_ir : import_sem_ir.import_irs().array_ref()) {
+        if (indirect_ir.is_export) {
+          auto& imported_indirect_ir =
+              imported_irs[indirect_ir.sem_ir->check_ir_id().index];
+          if (!imported_indirect_ir) {
+            imported_indirect_ir = true;
+
+            ImportLibraryFromCurrentPackage(
+                context, namespace_type_id, import.names.node_id,
+                *indirect_ir.sem_ir, import.names.is_export);
+          } else if (import.names.is_export) {
+            // The indirect IR was previously indirectly imported, but it's
+            // found through `export import`. We need to mark it for re-export.
+            context.import_irs()
+                .Get(context.check_ir_map()[indirect_ir.sem_ir->check_ir_id()
+                                                .index])
+                .is_export = true;
+          }
+        }
+      }
+    } else if (import.names.is_export) {
+      // The IR was previously indirectly imported, but it's `export import`.
+      // We need to mark it -- and transitive `export import`s -- for re-export.
+      context.import_irs()
+          .Get(context.check_ir_map()[import_sem_ir.check_ir_id().index])
+          .is_export = true;
+
+      for (const auto& indirect_ir : import_sem_ir.import_irs().array_ref()) {
+        if (indirect_ir.is_export) {
+          context.import_irs()
+              .Get(context
+                       .check_ir_map()[indirect_ir.sem_ir->check_ir_id().index])
+              .is_export = true;
+        }
+      }
+    }
+  }
+
+  context.scope_stack().Push(
+      package_inst_id, SemIR::NameScopeId::Package,
+      context.name_scopes().Get(SemIR::NameScopeId::Package).has_error);
+}
+
 // Add imports to the root block.
-static auto InitPackageScopeAndImports(Context& context, UnitInfo& unit_info)
-    -> void {
+static auto InitPackageScopeAndImports(Context& context, UnitInfo& unit_info,
+                                       int total_ir_count) -> void {
   // First create the constant values map for all imported IRs. We'll populate
   // these with mappings for namespaces as we go.
-  size_t num_irs = context.import_irs().size();
+  size_t num_irs = 0;
   for (auto& [_, package_imports] : unit_info.package_imports_map) {
     num_irs += package_imports.imports.size();
   }
-  context.import_ir_constant_values().resize(
-      num_irs, SemIR::ConstantValueStore(SemIR::ConstantId::Invalid));
+  if (!unit_info.api_for_impl) {
+    // Leave an empty slot for ImportIRId::ApiForImpl.
+    ++num_irs;
+  }
+
+  context.import_irs().Reserve(num_irs);
+  context.import_ir_constant_values().reserve(num_irs);
+
+  context.check_ir_map().resize(total_ir_count, SemIR::ImportIRId::Invalid);
 
   // Importing makes many namespaces, so only canonicalize the type once.
   auto namespace_type_id =
@@ -228,30 +318,20 @@ static auto InitPackageScopeAndImports(Context& context, UnitInfo& unit_info)
                         SemIR::InstId::Invalid}});
   CARBON_CHECK(package_inst_id == SemIR::InstId::PackageNamespace);
 
-  // Add imports from the current package.
-  auto self_import = unit_info.package_imports_map.find(IdentifierId::Invalid);
-  if (self_import != unit_info.package_imports_map.end()) {
-    bool error_in_import = self_import->second.has_load_error;
-    for (const auto& import : self_import->second.imports) {
-      const auto& import_sem_ir = **import.unit_info->unit->sem_ir;
-      ImportLibraryFromCurrentPackage(context, namespace_type_id,
-                                      import.names.node_id, import_sem_ir);
-      error_in_import |= import_sem_ir.name_scopes()
-                             .Get(SemIR::NameScopeId::Package)
-                             .has_error;
-    }
-
-    // If an import of the current package caused an error for the imported
-    // file, it transitively affects the current file too.
-    if (error_in_import) {
-      context.name_scopes().Get(SemIR::NameScopeId::Package).has_error = true;
-    }
-    context.scope_stack().Push(package_inst_id, SemIR::NameScopeId::Package,
-                               error_in_import);
+  // If there is an implicit `api` import, set it first so that it uses the
+  // ImportIRId::ApiForImpl when processed for imports.
+  if (unit_info.api_for_impl) {
+    SetApiImportIR(
+        context,
+        {.node_id = context.parse_tree().packaging_directive()->names.node_id,
+         .sem_ir = &**unit_info.api_for_impl->unit->sem_ir});
   } else {
-    // Push the scope; there are no names to add.
-    context.scope_stack().Push(package_inst_id, SemIR::NameScopeId::Package);
+    SetApiImportIR(context,
+                   {.node_id = Parse::InvalidNodeId(), .sem_ir = nullptr});
   }
+
+  ImportCurrentPackage(context, unit_info, total_ir_count, package_inst_id,
+                       namespace_type_id);
   CARBON_CHECK(context.scope_stack().PeekIndex() == ScopeIndex::Package);
 
   for (auto& [package_id, package_imports] : unit_info.package_imports_map) {
@@ -263,25 +343,453 @@ static auto InitPackageScopeAndImports(Context& context, UnitInfo& unit_info)
     llvm::SmallVector<SemIR::ImportIR> import_irs;
     for (auto import : package_imports.imports) {
       import_irs.push_back({.node_id = import.names.node_id,
-                            .sem_ir = &**import.unit_info->unit->sem_ir});
+                            .sem_ir = &**import.unit_info->unit->sem_ir,
+                            .is_export = false});
+      CARBON_CHECK(!import.names.is_export)
+          << "Imports from other packages can't be exported.";
     }
     ImportLibrariesFromOtherPackage(context, namespace_type_id,
                                     package_imports.node_id, package_id,
                                     import_irs, package_imports.has_load_error);
   }
+}
 
-  CARBON_CHECK(context.import_irs().size() == num_irs)
-      << "Created an unexpected number of IRs";
+namespace {
+// State used to track the next deferred function definition that we will
+// encounter and need to reorder.
+class NextDeferredDefinitionCache {
+ public:
+  explicit NextDeferredDefinitionCache(const Parse::Tree* tree) : tree_(tree) {
+    SkipTo(Parse::DeferredDefinitionIndex(0));
+  }
+
+  // Set the specified deferred definition index as being the next one that will
+  // be encountered.
+  auto SkipTo(Parse::DeferredDefinitionIndex next_index) -> void {
+    index_ = next_index;
+    if (static_cast<std::size_t>(index_.index) ==
+        tree_->deferred_definitions().size()) {
+      start_id_ = Parse::NodeId::Invalid;
+    } else {
+      start_id_ = tree_->deferred_definitions().Get(index_).start_id;
+    }
+  }
+
+  // Returns the index of the next deferred definition to be encountered.
+  auto index() const -> Parse::DeferredDefinitionIndex { return index_; }
+
+  // Returns the ID of the start node of the next deferred definition.
+  auto start_id() const -> Parse::NodeId { return start_id_; }
+
+ private:
+  const Parse::Tree* tree_;
+  Parse::DeferredDefinitionIndex index_ =
+      Parse::DeferredDefinitionIndex::Invalid;
+  Parse::NodeId start_id_ = Parse::NodeId::Invalid;
+};
+}  // namespace
+
+// Determines whether this node kind is the start of a deferred definition
+// scope.
+static auto IsStartOfDeferredDefinitionScope(Parse::NodeKind kind) -> bool {
+  switch (kind) {
+    case Parse::NodeKind::ClassDefinitionStart:
+    case Parse::NodeKind::ImplDefinitionStart:
+    case Parse::NodeKind::InterfaceDefinitionStart:
+    case Parse::NodeKind::NamedConstraintDefinitionStart:
+      // TODO: Mixins.
+      return true;
+    default:
+      return false;
+  }
+}
+
+// Determines whether this node kind is the end of a deferred definition scope.
+static auto IsEndOfDeferredDefinitionScope(Parse::NodeKind kind) -> bool {
+  switch (kind) {
+    case Parse::NodeKind::ClassDefinition:
+    case Parse::NodeKind::ImplDefinition:
+    case Parse::NodeKind::InterfaceDefinition:
+    case Parse::NodeKind::NamedConstraintDefinition:
+      // TODO: Mixins.
+      return true;
+    default:
+      return false;
+  }
+}
+
+namespace {
+// A worklist of pending tasks to perform to check deferred function definitions
+// in the right order.
+class DeferredDefinitionWorklist {
+ public:
+  // A worklist task that indicates we should check a deferred function
+  // definition that we previously skipped.
+  struct CheckSkippedDefinition {
+    // The definition that we skipped.
+    Parse::DeferredDefinitionIndex definition_index;
+    // The suspended function.
+    SuspendedFunction suspended_fn;
+  };
+
+  // A worklist task that indicates we should enter a nested deferred definition
+  // scope.
+  struct EnterDeferredDefinitionScope {
+    // The suspended scope. This is only set once we reach the end of the scope.
+    std::optional<DeclNameStack::SuspendedName> suspended_name;
+    // Whether this scope is itself within an outer deferred definition scope.
+    // If so, we'll delay processing its contents until we reach the end of the
+    // enclosing scope. For example:
+    //
+    // ```
+    // class A {
+    //   class B {
+    //     fn F() -> A { return {}; }
+    //   }
+    // } // A.B.F is type-checked here, with A complete.
+    //
+    // fn F() {
+    //   class C {
+    //     fn G() {}
+    //   } // C.G is type-checked here.
+    // }
+    // ```
+    bool in_deferred_definition_scope;
+  };
+
+  // A worklist task that indicates we should leave a deferred definition scope.
+  struct LeaveDeferredDefinitionScope {
+    // Whether this scope is within another deferred definition scope.
+    bool in_deferred_definition_scope;
+  };
+
+  // A pending type-checking task.
+  using Task =
+      std::variant<CheckSkippedDefinition, EnterDeferredDefinitionScope,
+                   LeaveDeferredDefinitionScope>;
+
+  explicit DeferredDefinitionWorklist(llvm::raw_ostream* vlog_stream)
+      : vlog_stream_(vlog_stream) {
+    // See declaration of `worklist_`.
+    worklist_.reserve(64);
+  }
+
+  static constexpr llvm::StringLiteral VlogPrefix =
+      "DeferredDefinitionWorklist ";
+
+  // Suspend the current function definition and push a task onto the worklist
+  // to finish it later.
+  auto SuspendFunctionAndPush(Context& context,
+                              Parse::DeferredDefinitionIndex index,
+                              Parse::FunctionDefinitionStartId node_id)
+      -> void {
+    worklist_.push_back(CheckSkippedDefinition{
+        index, HandleFunctionDefinitionSuspend(context, node_id)});
+    CARBON_VLOG() << VlogPrefix << "Push CheckSkippedDefinition " << index.index
+                  << "\n";
+  }
+
+  // Push a task to re-enter a function scope, so that functions defined within
+  // it are type-checked in the right context.
+  auto PushEnterDeferredDefinitionScope(Context& context) -> void {
+    bool nested = !enclosing_scopes_.empty() &&
+                  enclosing_scopes_.back().scope_index ==
+                      context.decl_name_stack().PeekInitialScopeIndex();
+    enclosing_scopes_.push_back(
+        {.worklist_start_index = worklist_.size(),
+         .scope_index = context.scope_stack().PeekIndex()});
+    worklist_.push_back(EnterDeferredDefinitionScope{std::nullopt, nested});
+    CARBON_VLOG() << VlogPrefix << "Push EnterDeferredDefinitionScope "
+                  << (nested ? "(nested)" : "(non-nested)") << "\n";
+  }
+
+  // Suspend the current deferred definition scope, which is finished but still
+  // on the decl_name_stack, and push a task to leave the scope when we're
+  // type-checking deferred definitions. Returns `true` if the current list of
+  // deferred definitions should be type-checked immediately.
+  auto SuspendFinishedScopeAndPush(Context& context) -> bool;
+
+  // Pop the next task off the worklist.
+  auto Pop() -> Task {
+    if (vlog_stream_) {
+      VariantMatch(
+          worklist_.back(),
+          [&](CheckSkippedDefinition& definition) {
+            CARBON_VLOG() << VlogPrefix << "Handle CheckSkippedDefinition "
+                          << definition.definition_index.index << "\n";
+          },
+          [&](EnterDeferredDefinitionScope& enter) {
+            CARBON_CHECK(enter.in_deferred_definition_scope);
+            CARBON_VLOG() << VlogPrefix
+                          << "Handle EnterDeferredDefinitionScope (nested)\n";
+          },
+          [&](LeaveDeferredDefinitionScope& leave) {
+            bool nested = leave.in_deferred_definition_scope;
+            CARBON_VLOG() << VlogPrefix
+                          << "Handle LeaveDeferredDefinitionScope "
+                          << (nested ? "(nested)" : "(non-nested)") << "\n";
+          });
+    }
+
+    return worklist_.pop_back_val();
+  }
+
+  // CHECK that the work list has no further work.
+  auto VerifyEmpty() {
+    CARBON_CHECK(worklist_.empty() && enclosing_scopes_.empty())
+        << "Tasks left behind on worklist.";
+  }
+
+ private:
+  llvm::raw_ostream* vlog_stream_;
+
+  // A worklist of type-checking tasks we'll need to do later.
+  //
+  // Don't allocate any inline storage here. A Task is fairly large, so we never
+  // want this to live on the stack. Instead, we reserve space in the
+  // constructor for a fairly large number of deferred definitions.
+  llvm::SmallVector<Task, 0> worklist_;
+
+  // A deferred definition scope that is currently still open.
+  struct EnclosingScope {
+    // The index in worklist_ of the EnterDeferredDefinitionScope task.
+    size_t worklist_start_index;
+    // The corresponding lexical scope index.
+    ScopeIndex scope_index;
+  };
+
+  // The deferred definition scopes enclosing the current checking actions.
+  llvm::SmallVector<EnclosingScope> enclosing_scopes_;
+};
+}  // namespace
+
+auto DeferredDefinitionWorklist::SuspendFinishedScopeAndPush(Context& context)
+    -> bool {
+  auto start_index = enclosing_scopes_.pop_back_val().worklist_start_index;
+
+  // If we've not found any deferred definitions in this scope, clean up the
+  // stack.
+  if (start_index == worklist_.size() - 1) {
+    context.decl_name_stack().PopScope();
+    worklist_.pop_back();
+    CARBON_VLOG() << VlogPrefix << "Pop EnterDeferredDefinitionScope (empty)\n";
+    return false;
+  }
+
+  // If we're finishing a nested deferred definition scope, keep track of that
+  // but don't type-check deferred definitions now.
+  auto& enter_scope = get<EnterDeferredDefinitionScope>(worklist_[start_index]);
+  if (enter_scope.in_deferred_definition_scope) {
+    // This is a nested deferred definition scope. Suspend the inner scope so we
+    // can restore it when we come to type-check the deferred definitions.
+    enter_scope.suspended_name = context.decl_name_stack().Suspend();
+
+    // Enqueue a task to leave the nested scope.
+    worklist_.push_back(
+        LeaveDeferredDefinitionScope{.in_deferred_definition_scope = true});
+    CARBON_VLOG() << VlogPrefix
+                  << "Push LeaveDeferredDefinitionScope (nested)\n";
+    return false;
+  }
+
+  // We're at the end of a non-nested deferred definition scope. Prepare to
+  // start checking deferred definitions. Enqueue a task to leave this outer
+  // scope and end checking deferred definitions.
+  worklist_.push_back(
+      LeaveDeferredDefinitionScope{.in_deferred_definition_scope = false});
+  CARBON_VLOG() << VlogPrefix
+                << "Push LeaveDeferredDefinitionScope (non-nested)\n";
+
+  // We'll process the worklist in reverse index order, so reverse the part of
+  // it we're about to execute so we run our tasks in the order in which they
+  // were pushed.
+  std::reverse(worklist_.begin() + start_index, worklist_.end());
+
+  // Pop the `EnterDeferredDefinitionScope` that's now on the end of the
+  // worklist. We stay in that scope rather than suspending then immediately
+  // resuming it.
+  CARBON_CHECK(
+      holds_alternative<EnterDeferredDefinitionScope>(worklist_.back()))
+      << "Unexpected task in worklist.";
+  worklist_.pop_back();
+  CARBON_VLOG() << VlogPrefix
+                << "Handle EnterDeferredDefinitionScope (non-nested)\n";
+  return true;
+}
+
+namespace {
+// A traversal of the node IDs in the parse tree, in the order in which we need
+// to check them.
+class NodeIdTraversal {
+ public:
+  explicit NodeIdTraversal(Context& context, llvm::raw_ostream* vlog_stream)
+      : context_(context),
+        next_deferred_definition_(&context.parse_tree()),
+        worklist_(vlog_stream) {
+    chunks_.push_back(
+        {.it = context.parse_tree().postorder().begin(),
+         .end = context.parse_tree().postorder().end(),
+         .next_definition = Parse::DeferredDefinitionIndex::Invalid});
+  }
+
+  // Finds the next `NodeId` to type-check. Returns nullopt if the traversal is
+  // complete.
+  auto Next() -> std::optional<Parse::NodeId>;
+
+  // Performs any processing necessary after we type-check a node.
+  auto Handle(Parse::NodeKind parse_kind) -> void {
+    // When we reach the start of a deferred definition scope, add a task to the
+    // worklist to check future skipped definitions in the new context.
+    if (IsStartOfDeferredDefinitionScope(parse_kind)) {
+      worklist_.PushEnterDeferredDefinitionScope(context_);
+    }
+
+    // When we reach the end of a deferred definition scope, add a task to the
+    // worklist to leave the scope. If this is not a nested scope, start
+    // checking the deferred definitions now.
+    if (IsEndOfDeferredDefinitionScope(parse_kind)) {
+      chunks_.back().checking_deferred_definitions =
+          worklist_.SuspendFinishedScopeAndPush(context_);
+    }
+  }
+
+ private:
+  // A chunk of the parse tree that we need to type-check.
+  struct Chunk {
+    Parse::Tree::PostorderIterator it;
+    Parse::Tree::PostorderIterator end;
+    // The next definition that will be encountered after this chunk completes.
+    Parse::DeferredDefinitionIndex next_definition;
+    // Whether we are currently checking deferred definitions, rather than the
+    // tokens of this chunk. If so, we'll pull tasks off `worklist` and execute
+    // them until we're done with this batch of deferred definitions. Otherwise,
+    // we'll pull node IDs from `*it` until it reaches `end`.
+    bool checking_deferred_definitions = false;
+  };
+
+  // Re-enter a nested deferred definition scope.
+  auto PerformTask(
+      DeferredDefinitionWorklist::EnterDeferredDefinitionScope&& enter)
+      -> void {
+    CARBON_CHECK(enter.suspended_name)
+        << "Entering a scope with no suspension information.";
+    context_.decl_name_stack().Restore(std::move(*enter.suspended_name));
+  }
+
+  // Leave a nested or top-level deferred definition scope.
+  auto PerformTask(
+      DeferredDefinitionWorklist::LeaveDeferredDefinitionScope&& leave)
+      -> void {
+    if (!leave.in_deferred_definition_scope) {
+      // We're done with checking deferred definitions.
+      chunks_.back().checking_deferred_definitions = false;
+    }
+    context_.decl_name_stack().PopScope();
+  }
+
+  // Resume checking a deferred definition.
+  auto PerformTask(
+      DeferredDefinitionWorklist::CheckSkippedDefinition&& parse_definition)
+      -> void {
+    auto& [definition_index, suspended_fn] = parse_definition;
+    const auto& definition_info =
+        context_.parse_tree().deferred_definitions().Get(definition_index);
+    HandleFunctionDefinitionResume(context_, definition_info.start_id,
+                                   std::move(suspended_fn));
+    chunks_.push_back(
+        {.it = context_.parse_tree().postorder(definition_info.start_id).end(),
+         .end = context_.parse_tree()
+                    .postorder(definition_info.definition_id)
+                    .end(),
+         .next_definition = next_deferred_definition_.index()});
+    ++definition_index.index;
+    next_deferred_definition_.SkipTo(definition_index);
+  }
+
+  Context& context_;
+  NextDeferredDefinitionCache next_deferred_definition_;
+  DeferredDefinitionWorklist worklist_;
+  llvm::SmallVector<Chunk> chunks_;
+};
+}  // namespace
+
+auto NodeIdTraversal::Next() -> std::optional<Parse::NodeId> {
+  while (true) {
+    // If we're checking deferred definitions, find the next definition we
+    // should check, restore its suspended state, and add a corresponding
+    // `Chunk` to the top of the chunk list.
+    if (chunks_.back().checking_deferred_definitions) {
+      std::visit(
+          [&](auto&& task) { PerformTask(std::forward<decltype(task)>(task)); },
+          worklist_.Pop());
+      continue;
+    }
+
+    // If we're not checking deferred definitions, produce the next parse node
+    // for this chunk. If we've run out of parse nodes, we're done with this
+    // chunk of the parse tree.
+    if (chunks_.back().it == chunks_.back().end) {
+      auto old_chunk = chunks_.pop_back_val();
+
+      // If we're out of chunks, then we're done entirely.
+      if (chunks_.empty()) {
+        worklist_.VerifyEmpty();
+        return std::nullopt;
+      }
+
+      next_deferred_definition_.SkipTo(old_chunk.next_definition);
+      continue;
+    }
+
+    auto node_id = *chunks_.back().it;
+
+    // If we've reached the start of a deferred definition, skip to the end of
+    // it, and track that we need to check it later.
+    if (node_id == next_deferred_definition_.start_id()) {
+      const auto& definition_info =
+          context_.parse_tree().deferred_definitions().Get(
+              next_deferred_definition_.index());
+      worklist_.SuspendFunctionAndPush(context_,
+                                       next_deferred_definition_.index(),
+                                       definition_info.start_id);
+
+      // Continue type-checking the parse tree after the end of the definition.
+      chunks_.back().it =
+          context_.parse_tree().postorder(definition_info.definition_id).end();
+      next_deferred_definition_.SkipTo(definition_info.next_definition_index);
+      continue;
+    }
+
+    ++chunks_.back().it;
+    return node_id;
+  }
 }
 
 // Loops over all nodes in the tree. On some errors, this may return early,
 // for example if an unrecoverable state is encountered.
 // NOLINTNEXTLINE(readability-function-size)
-static auto ProcessNodeIds(Context& context,
-                           ErrorTrackingDiagnosticConsumer& err_tracker)
-    -> bool {
-  for (auto node_id : context.parse_tree().postorder()) {
-    switch (auto parse_kind = context.parse_tree().node_kind(node_id)) {
+static auto ProcessNodeIds(Context& context, llvm::raw_ostream* vlog_stream,
+                           ErrorTrackingDiagnosticConsumer& err_tracker,
+                           Parse::NodeLocConverter* converter) -> bool {
+  NodeIdTraversal traversal(context, vlog_stream);
+
+  Parse::NodeId node_id = Parse::NodeId::Invalid;
+
+  // On crash, report which token we were handling.
+  PrettyStackTraceFunction node_dumper([&](llvm::raw_ostream& output) {
+    auto loc = converter->ConvertLoc(
+        node_id, [](DiagnosticLoc, const Internal::DiagnosticBase<>&) {});
+    loc.FormatLocation(output);
+    output << ": Check::Handle" << context.parse_tree().node_kind(node_id)
+           << "\n";
+    loc.FormatSnippet(output);
+  });
+
+  while (auto maybe_node_id = traversal.Next()) {
+    node_id = *maybe_node_id;
+    auto parse_kind = context.parse_tree().node_kind(node_id);
+
+    switch (parse_kind) {
 #define CARBON_PARSE_NODE_KIND(Name)                                         \
   case Parse::NodeKind::Name: {                                              \
     if (!Check::Handle##Name(context, Parse::Name##Id(node_id))) {           \
@@ -293,6 +801,8 @@ static auto ProcessNodeIds(Context& context,
   }
 #include "toolchain/parse/node_kind.def"
     }
+
+    traversal.Handle(parse_kind);
   }
   return true;
 }
@@ -301,11 +811,11 @@ static auto ProcessNodeIds(Context& context,
 static auto CheckParseTree(
     llvm::DenseMap<const SemIR::File*, Parse::NodeLocConverter*>*
         node_converters,
-    const SemIR::File& builtin_ir, UnitInfo& unit_info,
-    llvm::raw_ostream* vlog_stream) -> void {
+    UnitInfo& unit_info, int total_ir_count, llvm::raw_ostream* vlog_stream)
+    -> void {
   unit_info.unit->sem_ir->emplace(
-      *unit_info.unit->value_stores,
-      unit_info.unit->tokens->source().filename().str(), &builtin_ir);
+      unit_info.check_ir_id, *unit_info.unit->value_stores,
+      unit_info.unit->tokens->source().filename().str());
 
   // For ease-of-access.
   SemIR::File& sem_ir = **unit_info.unit->sem_ir;
@@ -321,9 +831,14 @@ static auto CheckParseTree(
   // Add a block for the file.
   context.inst_block_stack().Push();
 
-  InitPackageScopeAndImports(context, unit_info);
+  InitPackageScopeAndImports(context, unit_info, total_ir_count);
 
-  if (!ProcessNodeIds(context, unit_info.err_tracker)) {
+  // Import all impls declared in imports.
+  // TODO: Do this selectively when we see an impl query.
+  ImportImpls(context);
+
+  if (!ProcessNodeIds(context, vlog_stream, unit_info.err_tracker,
+                      &unit_info.converter)) {
     context.sem_ir().set_has_errors(true);
     return;
   }
@@ -367,6 +882,16 @@ static auto GetImportKey(UnitInfo& unit_info, IdentifierId file_package_id,
 }
 
 static constexpr llvm::StringLiteral ExplicitMainName = "Main";
+
+static auto RenderImportKey(ImportKey import_key) -> std::string {
+  if (import_key.first.empty()) {
+    import_key.first = ExplicitMainName;
+  }
+  if (import_key.second.empty()) {
+    return import_key.first.str();
+  }
+  return llvm::formatv("{0}//{1}", import_key.first, import_key.second).str();
+}
 
 // Marks an import as required on both the source and target file.
 //
@@ -483,15 +1008,23 @@ static auto TrackImport(
     package_imports_it->second.imports.push_back({import, api->second});
     ++unit_info.imports_remaining;
     api->second->incoming_imports.push_back(&unit_info);
+
+    // If this is the implicit import, note we have it.
+    if (!explicit_import_map) {
+      CARBON_CHECK(!unit_info.api_for_impl);
+      unit_info.api_for_impl = api->second;
+    }
   } else {
     // The imported api is missing.
     package_imports_it->second.has_load_error = true;
     CARBON_DIAGNOSTIC(LibraryApiNotFound, Error,
-                      "Corresponding API not found.");
-    CARBON_DIAGNOSTIC(ImportNotFound, Error, "Imported API not found.");
-    unit_info.emitter.Emit(import.node_id, explicit_import_map
-                                               ? ImportNotFound
-                                               : LibraryApiNotFound);
+                      "Corresponding API for '{0}' not found.", std::string);
+    CARBON_DIAGNOSTIC(ImportNotFound, Error, "Imported API '{0}' not found.",
+                      std::string);
+    unit_info.emitter.Emit(
+        import.node_id,
+        explicit_import_map ? ImportNotFound : LibraryApiNotFound,
+        RenderImportKey(import_key));
   }
 }
 
@@ -584,8 +1117,7 @@ static auto BuildApiMapAndDiagnosePackaging(
   return api_map;
 }
 
-auto CheckParseTrees(const SemIR::File& builtin_ir,
-                     llvm::MutableArrayRef<Unit> units,
+auto CheckParseTrees(llvm::MutableArrayRef<Unit> units, bool prelude_import,
                      llvm::raw_ostream* vlog_stream) -> void {
   // Prepare diagnostic emitters in case we run into issues during package
   // checking.
@@ -593,8 +1125,8 @@ auto CheckParseTrees(const SemIR::File& builtin_ir,
   // UnitInfo is big due to its SmallVectors, so we default to 0 on the stack.
   llvm::SmallVector<UnitInfo, 0> unit_infos;
   unit_infos.reserve(units.size());
-  for (auto& unit : units) {
-    unit_infos.emplace_back(unit);
+  for (auto [i, unit] : llvm::enumerate(units)) {
+    unit_infos.emplace_back(SemIR::CheckIRId(i), unit);
   }
 
   llvm::DenseMap<ImportKey, UnitInfo*> api_map =
@@ -604,17 +1136,31 @@ auto CheckParseTrees(const SemIR::File& builtin_ir,
   llvm::SmallVector<UnitInfo*> ready_to_check;
   ready_to_check.reserve(units.size());
   for (auto& unit_info : unit_infos) {
-    if (const auto& packaging =
-            unit_info.unit->parse_tree->packaging_directive()) {
-      if (packaging->api_or_impl == Parse::Tree::ApiOrImpl::Impl) {
-        // An `impl` has an implicit import of its `api`.
-        auto implicit_names = packaging->names;
-        implicit_names.package_id = IdentifierId::Invalid;
-        TrackImport(api_map, nullptr, unit_info, implicit_names);
-      }
+    const auto& packaging = unit_info.unit->parse_tree->packaging_directive();
+    if (packaging && packaging->api_or_impl == Parse::Tree::ApiOrImpl::Impl) {
+      // An `impl` has an implicit import of its `api`.
+      auto implicit_names = packaging->names;
+      implicit_names.package_id = IdentifierId::Invalid;
+      TrackImport(api_map, nullptr, unit_info, implicit_names);
     }
 
     llvm::DenseMap<ImportKey, Parse::NodeId> explicit_import_map;
+
+    // Add the prelude import. It's added to explicit_import_map so that it can
+    // conflict with an explicit import of the prelude.
+    // TODO: Add --no-prelude-import for `/no_prelude/` subdirs.
+    IdentifierId core_ident_id =
+        unit_info.unit->value_stores->identifiers().Add("Core");
+    if (prelude_import &&
+        !(packaging && packaging->names.package_id == core_ident_id)) {
+      auto prelude_id =
+          unit_info.unit->value_stores->string_literal_values().Add("prelude");
+      TrackImport(api_map, &explicit_import_map, unit_info,
+                  {.node_id = Parse::InvalidNodeId(),
+                   .package_id = core_ident_id,
+                   .library_id = prelude_id});
+    }
+
     for (const auto& import : unit_info.unit->parse_tree->imports()) {
       TrackImport(api_map, &explicit_import_map, unit_info, import);
     }
@@ -632,7 +1178,7 @@ auto CheckParseTrees(const SemIR::File& builtin_ir,
   for (int check_index = 0;
        check_index < static_cast<int>(ready_to_check.size()); ++check_index) {
     auto* unit_info = ready_to_check[check_index];
-    CheckParseTree(&node_converters, builtin_ir, *unit_info, vlog_stream);
+    CheckParseTree(&node_converters, *unit_info, units.size(), vlog_stream);
     for (auto* incoming_import : unit_info->incoming_imports) {
       --incoming_import->imports_remaining;
       if (incoming_import->imports_remaining == 0) {
@@ -666,6 +1212,9 @@ auto CheckParseTrees(const SemIR::File& builtin_ir,
                                      ImportCycleDetected);
               // Make this look the same as an import which wasn't found.
               package_imports.has_load_error = true;
+              if (unit_info.api_for_impl == import_it->unit_info) {
+                unit_info.api_for_impl = nullptr;
+              }
               import_it = package_imports.imports.erase(import_it);
             }
           }
@@ -677,7 +1226,7 @@ auto CheckParseTrees(const SemIR::File& builtin_ir,
     // incomplete imports.
     for (auto& unit_info : unit_infos) {
       if (unit_info.imports_remaining > 0) {
-        CheckParseTree(&node_converters, builtin_ir, unit_info, vlog_stream);
+        CheckParseTree(&node_converters, unit_info, units.size(), vlog_stream);
       }
     }
   }

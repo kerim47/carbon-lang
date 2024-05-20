@@ -5,7 +5,9 @@
 #include "toolchain/check/import.h"
 
 #include "common/check.h"
+#include "toolchain/base/kind_switch.h"
 #include "toolchain/check/context.h"
+#include "toolchain/check/import_ref.h"
 #include "toolchain/check/merge.h"
 #include "toolchain/parse/node_ids.h"
 #include "toolchain/sem_ir/file.h"
@@ -16,40 +18,40 @@
 namespace Carbon::Check {
 
 // Returns name information for the entity, corresponding to IDs in the import
-// IR rather than the current IR. May return Invalid for a TODO.
+// IR rather than the current IR.
 static auto GetImportName(const SemIR::File& import_sem_ir,
                           SemIR::Inst import_inst)
     -> std::pair<SemIR::NameId, SemIR::NameScopeId> {
-  switch (import_inst.kind()) {
-    case SemIR::InstKind::BindAlias:
-    case SemIR::InstKind::BindName:
-    case SemIR::InstKind::BindSymbolicName: {
-      const auto& bind_name = import_sem_ir.bind_names().Get(
-          import_inst.As<SemIR::AnyBindName>().bind_name_id);
+  CARBON_KIND_SWITCH(import_inst) {
+    case SemIR::BindAlias::Kind:
+    case SemIR::BindExport::Kind:
+    case SemIR::BindName::Kind:
+    case SemIR::BindSymbolicName::Kind: {
+      auto bind_inst = import_inst.As<SemIR::AnyBindName>();
+      const auto& bind_name =
+          import_sem_ir.bind_names().Get(bind_inst.bind_name_id);
       return {bind_name.name_id, bind_name.enclosing_scope_id};
     }
 
-    case SemIR::InstKind::ClassDecl: {
-      const auto& class_info = import_sem_ir.classes().Get(
-          import_inst.As<SemIR::ClassDecl>().class_id);
+    case CARBON_KIND(SemIR::ClassDecl class_decl): {
+      const auto& class_info = import_sem_ir.classes().Get(class_decl.class_id);
       return {class_info.name_id, class_info.enclosing_scope_id};
     }
 
-    case SemIR::InstKind::FunctionDecl: {
-      const auto& function = import_sem_ir.functions().Get(
-          import_inst.As<SemIR::FunctionDecl>().function_id);
+    case CARBON_KIND(SemIR::FunctionDecl function_decl): {
+      const auto& function =
+          import_sem_ir.functions().Get(function_decl.function_id);
       return {function.name_id, function.enclosing_scope_id};
     }
 
-    case SemIR::InstKind::InterfaceDecl: {
-      const auto& interface = import_sem_ir.interfaces().Get(
-          import_inst.As<SemIR::InterfaceDecl>().interface_id);
+    case CARBON_KIND(SemIR::InterfaceDecl interface_decl): {
+      const auto& interface =
+          import_sem_ir.interfaces().Get(interface_decl.interface_id);
       return {interface.name_id, interface.enclosing_scope_id};
     }
 
-    case SemIR::InstKind::Namespace: {
-      const auto& scope = import_sem_ir.name_scopes().Get(
-          import_inst.As<SemIR::Namespace>().name_scope_id);
+    case CARBON_KIND(SemIR::Namespace ns): {
+      const auto& scope = import_sem_ir.name_scopes().Get(ns.name_scope_id);
       return {scope.name_id, scope.enclosing_scope_id};
     }
 
@@ -138,9 +140,17 @@ static auto CopySingleNameScopeFromImportIR(
     SemIR::NameId name_id) -> SemIR::NameScopeId {
   // Produce the namespace for the entry.
   auto make_import_id = [&]() {
-    return context.AddInst(SemIR::ImportRefUsed{.type_id = namespace_type_id,
-                                                .ir_id = ir_id,
-                                                .inst_id = import_inst_id});
+    auto bind_name_id = context.bind_names().Add(
+        {.name_id = name_id,
+         .enclosing_scope_id = enclosing_scope_id,
+         .bind_index = SemIR::CompileTimeBindIndex::Invalid});
+    auto import_ir_inst_id = context.import_ir_insts().Add(
+        {.ir_id = ir_id, .inst_id = import_inst_id});
+    return context.AddInst(
+        {import_ir_inst_id,
+         SemIR::ImportRefLoaded{.type_id = namespace_type_id,
+                                .import_ir_inst_id = import_ir_inst_id,
+                                .bind_name_id = bind_name_id}});
   };
   auto [namespace_scope_id, namespace_const_id, _] =
       AddNamespace(context, namespace_type_id, Parse::NodeId::Invalid, name_id,
@@ -209,9 +219,12 @@ static auto CopyEnclosingNameScopesFromImportIR(
 auto ImportLibraryFromCurrentPackage(Context& context,
                                      SemIR::TypeId namespace_type_id,
                                      Parse::ImportDirectiveId node_id,
-                                     const SemIR::File& import_sem_ir) -> void {
-  auto ir_id =
-      context.import_irs().Add({.node_id = node_id, .sem_ir = &import_sem_ir});
+                                     const SemIR::File& import_sem_ir,
+                                     bool is_export) -> void {
+  auto ir_id = AddImportIR(
+      context,
+      {.node_id = node_id, .sem_ir = &import_sem_ir, .is_export = is_export});
+
   context.import_ir_constant_values()[ir_id.index].Set(
       SemIR::InstId::PackageNamespace,
       context.constant_values().Get(SemIR::InstId::PackageNamespace));
@@ -221,11 +234,6 @@ auto ImportLibraryFromCurrentPackage(Context& context,
     auto import_inst = import_sem_ir.insts().Get(import_inst_id);
     auto [import_name_id, import_enclosing_scope_id] =
         GetImportName(import_sem_ir, import_inst);
-    // TODO: This should only be invalid when GetImportName for an inst
-    // isn't yet implemented. Long-term this should be removed.
-    if (!import_name_id.is_valid()) {
-      continue;
-    }
 
     llvm::DenseMap<SemIR::NameScopeId, SemIR::NameScopeId> copied_namespaces;
 
@@ -242,14 +250,27 @@ auto ImportLibraryFromCurrentPackage(Context& context,
           import_namespace_inst->name_scope_id, enclosing_scope_id, name_id);
     } else {
       // Leave a placeholder that the inst comes from the other IR.
-      auto target_id = context.AddImportRef(ir_id, import_inst_id);
+      auto bind_name_id = context.bind_names().Add(
+          {.name_id = name_id,
+           .enclosing_scope_id = enclosing_scope_id,
+           .bind_index = SemIR::CompileTimeBindIndex::Invalid});
+      auto target_id = AddImportRef(
+          context, {.ir_id = ir_id, .inst_id = import_inst_id}, bind_name_id);
       auto [it, success] = context.name_scopes()
                                .Get(enclosing_scope_id)
                                .names.insert({name_id, target_id});
       if (!success) {
-        MergeImportRef(context, target_id, it->second);
+        // TODO: Figure out how best to handle when an export is added that's a
+        // conflict. Right now it diagnoses as a conflict around here.
+        context.DiagnoseDuplicateName(target_id, it->second);
       }
     }
+  }
+
+  // If an import of the current package caused an error for the imported
+  // file, it transitively affects the current file too.
+  if (import_sem_ir.name_scopes().Get(SemIR::NameScopeId::Package).has_error) {
+    context.name_scopes().Get(SemIR::NameScopeId::Package).has_error = true;
   }
 }
 
@@ -271,7 +292,7 @@ auto ImportLibrariesFromOtherPackage(Context& context,
   auto& scope = context.name_scopes().Get(namespace_scope_id);
   scope.is_closed_import = !is_duplicate;
   for (auto import_ir : import_irs) {
-    auto ir_id = context.import_irs().Add(import_ir);
+    auto ir_id = AddImportIR(context, import_ir);
     scope.import_ir_scopes.push_back({ir_id, SemIR::NameScopeId::Package});
     context.import_ir_constant_values()[ir_id.index].Set(
         SemIR::InstId::PackageNamespace, namespace_const_id);

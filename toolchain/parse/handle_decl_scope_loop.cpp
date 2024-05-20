@@ -19,9 +19,16 @@ static auto TryHandleEndOrPackagingDecl(Context& context) -> bool {
       context.PopAndDiscardState();
       return true;
     }
-    // `import`, `library`, and `package` manage their packaging state.
+    // Packaging-related keywords manage their packaging state.
+    case Lex::TokenKind::Export: {
+      if (!context.PositionIs(Lex::TokenKind::Import, Lookahead::NextToken)) {
+        break;
+      }
+      context.PushState(State::ImportAsExport);
+      return true;
+    }
     case Lex::TokenKind::Import: {
-      context.PushState(State::Import);
+      context.PushState(State::ImportAsRegular);
       return true;
     }
     case Lex::TokenKind::Library: {
@@ -32,20 +39,20 @@ static auto TryHandleEndOrPackagingDecl(Context& context) -> bool {
       context.PushState(State::Package);
       return true;
     }
-    default: {
-      // Because a non-packaging keyword was encountered, packaging is complete.
-      // Misplaced packaging keywords may lead to this being re-triggered.
-      if (context.packaging_state() !=
-          Context::PackagingState::AfterNonPackagingDecl) {
-        if (!context.first_non_packaging_token().is_valid()) {
-          context.set_first_non_packaging_token(*context.position());
-        }
-        context.set_packaging_state(
-            Context::PackagingState::AfterNonPackagingDecl);
-      }
-      return false;
-    }
+    default:
+      break;
   }
+
+  // Because a non-packaging keyword was encountered, packaging is complete.
+  // Misplaced packaging keywords may lead to this being re-triggered.
+  if (context.packaging_state() !=
+      Context::PackagingState::AfterNonPackagingDecl) {
+    if (!context.first_non_packaging_token().is_valid()) {
+      context.set_first_non_packaging_token(*context.position());
+    }
+    context.set_packaging_state(Context::PackagingState::AfterNonPackagingDecl);
+  }
+  return false;
 }
 
 // Finishes an invalid declaration, skipping past its end.
@@ -110,12 +117,23 @@ static auto HandleBaseAsDecl(Context& context, Context::StateStackEntry state)
 static auto TryHandleAsDecl(Context& context, Context::StateStackEntry state,
                             bool saw_modifier) -> bool {
   switch (context.PositionKind()) {
+    case Lex::TokenKind::Adapt: {
+      ApplyIntroducer(context, state, NodeKind::AdaptIntroducer,
+                      State::AdaptDecl);
+      context.PushState(State::Expr);
+      return true;
+    }
     case Lex::TokenKind::Alias: {
       ApplyIntroducer(context, state, NodeKind::AliasIntroducer, State::Alias);
       return true;
     }
     case Lex::TokenKind::Base: {
       HandleBaseAsDecl(context, state);
+      return true;
+    }
+    case Lex::TokenKind::Choice: {
+      ApplyIntroducer(context, state, NodeKind::ChoiceIntroducer,
+                      State::ChoiceIntroducer);
       return true;
     }
     case Lex::TokenKind::Class: {
@@ -126,6 +144,11 @@ static auto TryHandleAsDecl(Context& context, Context::StateStackEntry state,
     case Lex::TokenKind::Constraint: {
       ApplyIntroducer(context, state, NodeKind::NamedConstraintIntroducer,
                       State::TypeAfterIntroducerAsNamedConstraint);
+      return true;
+    }
+    case Lex::TokenKind::Export: {
+      ApplyIntroducer(context, state, NodeKind::ExportIntroducer,
+                      State::ExportName);
       return true;
     }
     case Lex::TokenKind::Extend: {
@@ -162,11 +185,6 @@ static auto TryHandleAsDecl(Context& context, Context::StateStackEntry state,
                       State::VarAsDecl);
       return true;
     }
-    case Lex::TokenKind::Choice: {
-      ApplyIntroducer(context, state, NodeKind::ChoiceIntroducer,
-                      State::ChoiceIntroducer);
-      return true;
-    }
 
     case Lex::TokenKind::Semi: {
       if (saw_modifier) {
@@ -199,6 +217,7 @@ static auto ResolveAmbiguousTokenAsDeclaration(Context& context,
       // also modifiers (such as `base`). Other introducer tokens need to be
       // added by hand.
       switch (context.PositionKind(Lookahead::NextToken)) {
+        case Lex::TokenKind::Adapt:
         case Lex::TokenKind::Alias:
         case Lex::TokenKind::Class:
         case Lex::TokenKind::Constraint:

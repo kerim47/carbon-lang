@@ -24,14 +24,14 @@ struct BuiltinInfo {
 };
 
 // The maximum number of type parameters any builtin needs.
-constexpr int MaxTypeParams = 1;
+constexpr int MaxTypeParams = 2;
 
 // State used when validating a builtin signature that persists between
 // individual checks.
 struct ValidateState {
   // The type values of type parameters in the builtin signature. Invalid if
   // either no value has been deduced yet or the parameter is not used.
-  TypeId type_params[MaxTypeParams] = {TypeId::Invalid};
+  TypeId type_params[MaxTypeParams] = {TypeId::Invalid, TypeId::Invalid};
 };
 
 // Constraint that a type is generic type parameter `I` of the builtin,
@@ -64,10 +64,31 @@ struct BuiltinType {
 using Bool = BuiltinType<InstId::BuiltinBoolType>;
 
 // Constraint that requires the type to be an integer type.
-//
-// TODO: This only matches i32 for now. Support iN for all N, and the
-// Core.BigInt type we use to implement for integer literals.
-using AnyInt = BuiltinType<InstId::BuiltinIntType>;
+struct AnyInt {
+  static auto Check(const File& sem_ir, ValidateState& state, TypeId type_id)
+      -> bool {
+    // TODO: Support Core.BigInt once it exists.
+    if (BuiltinType<InstId::BuiltinIntType>::Check(sem_ir, state, type_id)) {
+      return true;
+    }
+    return sem_ir.types().Is<IntType>(type_id);
+  }
+};
+
+// Constraint that requires the type to be a float type.
+struct AnyFloat {
+  static auto Check(const File& sem_ir, ValidateState& state, TypeId type_id)
+      -> bool {
+    if (BuiltinType<InstId::BuiltinFloatType>::Check(sem_ir, state, type_id)) {
+      return true;
+    }
+    return sem_ir.types().Is<FloatType>(type_id);
+  }
+};
+
+// Constraint that requires the type to be the type type.
+using Type = BuiltinType<InstId::BuiltinTypeType>;
+
 }  // namespace
 
 // Validates that this builtin has a signature matching the specified signature.
@@ -125,32 +146,110 @@ namespace BuiltinFunctionInfo {
 // generic type parameter that is constrained to be an integer type.
 using IntT = TypeParam<0, AnyInt>;
 
+// Convenience name used in the builtin type signatures below for a second
+// generic type parameter that is constrained to be an integer type.
+using IntU = TypeParam<1, AnyInt>;
+
+// Convenience name used in the builtin type signatures below for a first
+// generic type parameter that is constrained to be an float type.
+using FloatT = TypeParam<0, AnyFloat>;
+
 // Not a builtin function.
 constexpr BuiltinInfo None = {"", nullptr};
 
-// "int.negate": integer negation.
-constexpr BuiltinInfo IntNegate = {"int.negate",
-                                   ValidateSignature<auto(IntT)->IntT>};
+// Returns the `i32` type. Doesn't take a bit size because we need an integer
+// type as a basis for that.
+constexpr BuiltinInfo IntMakeType32 = {"int.make_type_32",
+                                       ValidateSignature<auto()->Type>};
 
-// "int.add": integer addition.
-constexpr BuiltinInfo IntAdd = {"int.add",
-                                ValidateSignature<auto(IntT, IntT)->IntT>};
+// Returns the `iN` type.
+// TODO: Should we use a more specific type as the type of the bit width?
+constexpr BuiltinInfo IntMakeTypeSigned = {
+    "int.make_type_signed", ValidateSignature<auto(AnyInt)->Type>};
 
-// "int.sub": integer subtraction.
-constexpr BuiltinInfo IntSub = {"int.sub",
-                                ValidateSignature<auto(IntT, IntT)->IntT>};
+// Returns the `uN` type.
+constexpr BuiltinInfo IntMakeTypeUnsigned = {
+    "int.make_type_unsigned", ValidateSignature<auto(AnyInt)->Type>};
 
-// "int.mul": integer multiplication.
-constexpr BuiltinInfo IntMul = {"int.mul",
-                                ValidateSignature<auto(IntT, IntT)->IntT>};
+// Returns float types, such as `f64`. Currently only supports `f64`.
+constexpr BuiltinInfo FloatMakeType = {"float.make_type",
+                                       ValidateSignature<auto(AnyInt)->Type>};
 
-// "int.div": integer division.
-constexpr BuiltinInfo IntDiv = {"int.div",
-                                ValidateSignature<auto(IntT, IntT)->IntT>};
+// Returns the `bool` type.
+constexpr BuiltinInfo BoolMakeType = {"bool.make_type",
+                                      ValidateSignature<auto()->Type>};
+
+// "int.snegate": integer negation.
+constexpr BuiltinInfo IntSNegate = {"int.snegate",
+                                    ValidateSignature<auto(IntT)->IntT>};
+
+// "int.sadd": integer addition.
+constexpr BuiltinInfo IntSAdd = {"int.sadd",
+                                 ValidateSignature<auto(IntT, IntT)->IntT>};
+
+// "int.ssub": integer subtraction.
+constexpr BuiltinInfo IntSSub = {"int.ssub",
+                                 ValidateSignature<auto(IntT, IntT)->IntT>};
+
+// "int.smul": integer multiplication.
+constexpr BuiltinInfo IntSMul = {"int.smul",
+                                 ValidateSignature<auto(IntT, IntT)->IntT>};
+
+// "int.sdiv": integer division.
+constexpr BuiltinInfo IntSDiv = {"int.sdiv",
+                                 ValidateSignature<auto(IntT, IntT)->IntT>};
+
+// "int.smod": integer modulo.
+constexpr BuiltinInfo IntSMod = {"int.smod",
+                                 ValidateSignature<auto(IntT, IntT)->IntT>};
+
+// "int.unegate": unsigned integer negation.
+constexpr BuiltinInfo IntUNegate = {"int.unegate",
+                                    ValidateSignature<auto(IntT)->IntT>};
+
+// "int.uadd": unsigned integer addition.
+constexpr BuiltinInfo IntUAdd = {"int.uadd",
+                                 ValidateSignature<auto(IntT, IntT)->IntT>};
+
+// "int.usub": unsigned integer subtraction.
+constexpr BuiltinInfo IntUSub = {"int.usub",
+                                 ValidateSignature<auto(IntT, IntT)->IntT>};
+
+// "int.umul": unsigned integer multiplication.
+constexpr BuiltinInfo IntUMul = {"int.umul",
+                                 ValidateSignature<auto(IntT, IntT)->IntT>};
+
+// "int.udiv": unsigned integer division.
+constexpr BuiltinInfo IntUDiv = {"int.udiv",
+                                 ValidateSignature<auto(IntT, IntT)->IntT>};
 
 // "int.mod": integer modulo.
-constexpr BuiltinInfo IntMod = {"int.mod",
+constexpr BuiltinInfo IntUMod = {"int.umod",
+                                 ValidateSignature<auto(IntT, IntT)->IntT>};
+
+// "int.complement": integer bitwise complement.
+constexpr BuiltinInfo IntComplement = {"int.complement",
+                                       ValidateSignature<auto(IntT)->IntT>};
+
+// "int.and": integer bitwise and.
+constexpr BuiltinInfo IntAnd = {"int.and",
                                 ValidateSignature<auto(IntT, IntT)->IntT>};
+
+// "int.or": integer bitwise or.
+constexpr BuiltinInfo IntOr = {"int.or",
+                               ValidateSignature<auto(IntT, IntT)->IntT>};
+
+// "int.xor": integer bitwise xor.
+constexpr BuiltinInfo IntXor = {"int.xor",
+                                ValidateSignature<auto(IntT, IntT)->IntT>};
+
+// "int.left_shift": integer left shift.
+constexpr BuiltinInfo IntLeftShift = {
+    "int.left_shift", ValidateSignature<auto(IntT, IntU)->IntT>};
+
+// "int.left_shift": integer right shift.
+constexpr BuiltinInfo IntRightShift = {
+    "int.right_shift", ValidateSignature<auto(IntT, IntU)->IntT>};
 
 // "int.eq": integer equality comparison.
 constexpr BuiltinInfo IntEq = {"int.eq",
@@ -159,6 +258,66 @@ constexpr BuiltinInfo IntEq = {"int.eq",
 // "int.neq": integer non-equality comparison.
 constexpr BuiltinInfo IntNeq = {"int.neq",
                                 ValidateSignature<auto(IntT, IntT)->Bool>};
+
+// "int.less": integer less than comparison.
+constexpr BuiltinInfo IntLess = {"int.less",
+                                 ValidateSignature<auto(IntT, IntT)->Bool>};
+
+// "int.less_eq": integer less than or equal comparison.
+constexpr BuiltinInfo IntLessEq = {"int.less_eq",
+                                   ValidateSignature<auto(IntT, IntT)->Bool>};
+
+// "int.greater": integer greater than comparison.
+constexpr BuiltinInfo IntGreater = {"int.greater",
+                                    ValidateSignature<auto(IntT, IntT)->Bool>};
+
+// "int.greater_eq": integer greater than or equal comparison.
+constexpr BuiltinInfo IntGreaterEq = {
+    "int.greater_eq", ValidateSignature<auto(IntT, IntT)->Bool>};
+
+// "float.negate": float negation.
+constexpr BuiltinInfo FloatNegate = {"float.negate",
+                                     ValidateSignature<auto(FloatT)->FloatT>};
+
+// "float.add": float addition.
+constexpr BuiltinInfo FloatAdd = {
+    "float.add", ValidateSignature<auto(FloatT, FloatT)->FloatT>};
+
+// "float.sub": float subtraction.
+constexpr BuiltinInfo FloatSub = {
+    "float.sub", ValidateSignature<auto(FloatT, FloatT)->FloatT>};
+
+// "float.mul": float multiplication.
+constexpr BuiltinInfo FloatMul = {
+    "float.mul", ValidateSignature<auto(FloatT, FloatT)->FloatT>};
+
+// "float.div": float division.
+constexpr BuiltinInfo FloatDiv = {
+    "float.div", ValidateSignature<auto(FloatT, FloatT)->FloatT>};
+
+// "float.eq": float equality comparison.
+constexpr BuiltinInfo FloatEq = {"float.eq",
+                                 ValidateSignature<auto(FloatT, FloatT)->Bool>};
+
+// "float.neq": float non-equality comparison.
+constexpr BuiltinInfo FloatNeq = {
+    "float.neq", ValidateSignature<auto(FloatT, FloatT)->Bool>};
+
+// "float.less": float less than comparison.
+constexpr BuiltinInfo FloatLess = {
+    "float.less", ValidateSignature<auto(FloatT, FloatT)->Bool>};
+
+// "float.less_eq": float less than or equal comparison.
+constexpr BuiltinInfo FloatLessEq = {
+    "float.less_eq", ValidateSignature<auto(FloatT, FloatT)->Bool>};
+
+// "float.greater": float greater than comparison.
+constexpr BuiltinInfo FloatGreater = {
+    "float.greater", ValidateSignature<auto(FloatT, FloatT)->Bool>};
+
+// "float.greater_eq": float greater than or equal comparison.
+constexpr BuiltinInfo FloatGreaterEq = {
+    "float.greater_eq", ValidateSignature<auto(FloatT, FloatT)->Bool>};
 
 }  // namespace BuiltinFunctionInfo
 
@@ -178,24 +337,6 @@ auto BuiltinFunctionKind::ForBuiltinName(llvm::StringRef name)
   }
 #include "toolchain/sem_ir/builtin_function_kind.def"
   return BuiltinFunctionKind::None;
-}
-
-// Returns the builtin function kind corresponding to the given function
-// callee, or None if the callee is not known to be a builtin.
-auto BuiltinFunctionKind::ForCallee(const File& sem_ir, InstId callee_id)
-    -> BuiltinFunctionKind {
-  if (auto bound_method =
-          sem_ir.insts().TryGetAs<SemIR::BoundMethod>(callee_id)) {
-    callee_id = bound_method->function_id;
-  }
-  callee_id = sem_ir.constant_values().Get(callee_id).inst_id();
-  if (!callee_id.is_valid()) {
-    return SemIR::BuiltinFunctionKind::None;
-  }
-  if (auto callee = sem_ir.insts().TryGetAs<SemIR::FunctionDecl>(callee_id)) {
-    return sem_ir.functions().Get(callee->function_id).builtin_kind;
-  }
-  return SemIR::BuiltinFunctionKind::None;
 }
 
 auto BuiltinFunctionKind::IsValidType(const File& sem_ir,

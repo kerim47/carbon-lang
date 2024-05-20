@@ -307,6 +307,12 @@ CARBON_PARSE_STATE(DeclNameAndParamsAfterImplicit)
 // ^~~~~~~
 //   1. DeclScopeLoop
 //
+// adapt ...
+// ^~~~~
+//   1. Expr
+//   2. AdaptDecl
+//   3. DeclScopeLoop
+//
 // alias ...
 // ^~~~~
 //   1. Alias
@@ -326,6 +332,11 @@ CARBON_PARSE_STATE(DeclNameAndParamsAfterImplicit)
 // constraint ...
 // ^~~~~~~~~~
 //   1. TypeAfterIntroducerAsNamedConstraint
+//   2. DeclScopeLoop
+//
+// export <name> ...
+// ^~~~~~
+//   1. ExportName
 //   2. DeclScopeLoop
 //
 // fn ...
@@ -664,14 +675,31 @@ CARBON_PARSE_STATE(FunctionSignatureFinish)
 //   (state done)
 CARBON_PARSE_STATE(FunctionDefinitionFinish)
 
+// Handles `export <name>`.
+//
+// export Name;
+//       ^
+//   1. DeclNameAndParamsAsNone
+//   2. ExportFinish
+CARBON_PARSE_STATE(ExportName)
+
+// Finishes an `export <name>`.
+//
+// export Name;
+//            ^
+//   (state done)
+CARBON_PARSE_STATE(ExportNameFinish)
+
 // Handles `import`.
 //
 // import pkgname [library "libname"] ;
 // ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 // import ??? ;
 // ^~~~~~~~~~~~
+// export import library "libname" ;
+// ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 //   (state done)
-CARBON_PARSE_STATE(Import)
+CARBON_PARSE_STATE_VARIANTS2(Import, Regular, Export)
 
 // Handles `library` in directive form.
 //
@@ -1188,14 +1216,24 @@ CARBON_PARSE_STATE_VARIANTS3(TypeAfterIntroducer, Class, Interface,
 // class/impl/interface/constraint name ( ... ) ???
 //                                              ^
 //   (state done)
-CARBON_PARSE_STATE_VARIANTS4(DeclOrDefinition, Class, Impl, Interface, NamedConstraint)
+CARBON_PARSE_STATE_VARIANTS4(DeclOrDefinition, Class, Impl, Interface,
+                             NamedConstraint)
+
+// Handles processing of a completed `adapt T` declaration.
+//
+// adapt T ;
+//         ^
+// adapt T ??? ;
+//         ^~~~~
+//   (state done)
+CARBON_PARSE_STATE(AdaptDecl)
 
 // Handles processing of a completed `base: B` declaration.
 //
 // base: B ;
 //         ^
 // base: B ??? ;
-//         ^
+//         ^~~~~
 //   (state done)
 CARBON_PARSE_STATE(BaseDecl)
 
@@ -1358,8 +1396,8 @@ CARBON_PARSE_STATE(ChoiceDefinitionStart)
 //   1. ChoiceAlternativeFinish
 CARBON_PARSE_STATE(ChoiceAlternative)
 
-// Finishes parsing a choice's alternative, including the optional trailing `,`. If there
-// are more alternatives, enqueues another alternative parsing state.
+// Finishes parsing a choice's alternative, including the optional trailing `,`.
+// If there are more alternatives, enqueues another alternative parsing state.
 //
 // ... , }
 //     ^

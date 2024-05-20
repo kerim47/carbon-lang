@@ -412,8 +412,8 @@ class NodeStack {
         case Parse::NodeKind::ReturnType:
         case Parse::NodeKind::ShortCircuitOperandAnd:
         case Parse::NodeKind::ShortCircuitOperandOr:
-        case Parse::NodeKind::StructFieldValue:
-        case Parse::NodeKind::StructFieldType:
+        case Parse::NodeKind::StructField:
+        case Parse::NodeKind::StructTypeField:
           return Id::KindFor<SemIR::InstId>();
         case Parse::NodeKind::IfCondition:
         case Parse::NodeKind::IfExprIf:
@@ -438,7 +438,6 @@ class NodeStack {
         case Parse::NodeKind::BuiltinName:
         case Parse::NodeKind::ClassIntroducer:
         case Parse::NodeKind::CodeBlockStart:
-        case Parse::NodeKind::ExprOpenParen:
         case Parse::NodeKind::FunctionIntroducer:
         case Parse::NodeKind::IfStatementElse:
         case Parse::NodeKind::ImplicitParamListStart:
@@ -450,7 +449,9 @@ class NodeStack {
         case Parse::NodeKind::ReturnedModifier:
         case Parse::NodeKind::ReturnStatementStart:
         case Parse::NodeKind::ReturnVarModifier:
-        case Parse::NodeKind::StructLiteralOrStructTypeLiteralStart:
+        case Parse::NodeKind::StructLiteralStart:
+        case Parse::NodeKind::StructTypeLiteralStart:
+        case Parse::NodeKind::TupleLiteralStart:
         case Parse::NodeKind::TuplePatternStart:
         case Parse::NodeKind::VariableInitializer:
         case Parse::NodeKind::VariableIntroducer:
@@ -501,7 +502,9 @@ class NodeStack {
   auto RequireIdKind(Parse::NodeKind parse_kind, Id::Kind id_kind) const
       -> void {
     CARBON_CHECK(NodeKindToIdKind(parse_kind) == id_kind)
-        << "Unexpected Id::Kind mapping for " << parse_kind;
+        << "Unexpected Id::Kind mapping for " << parse_kind << ": expected "
+        << static_cast<int>(id_kind) << ", found "
+        << static_cast<int>(NodeKindToIdKind(parse_kind));
   }
 
   // Require an entry to have the given Parse::NodeKind.

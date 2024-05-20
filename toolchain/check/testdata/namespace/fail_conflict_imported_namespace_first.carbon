@@ -33,23 +33,35 @@ fn NS.Foo();
 // CHECK:STDOUT:
 // CHECK:STDOUT: file {
 // CHECK:STDOUT:   package: <namespace> = namespace [template] {
+// CHECK:STDOUT:     .Core = %Core
 // CHECK:STDOUT:     .NS = %NS
 // CHECK:STDOUT:   }
+// CHECK:STDOUT:   %Core: <namespace> = namespace [template] {}
 // CHECK:STDOUT:   %NS: <namespace> = namespace [template] {}
 // CHECK:STDOUT: }
 // CHECK:STDOUT:
 // CHECK:STDOUT: --- fail_conflict.carbon
 // CHECK:STDOUT:
+// CHECK:STDOUT: constants {
+// CHECK:STDOUT:   %.1: type = fn_type @.1 [template]
+// CHECK:STDOUT:   %.2: type = tuple_type () [template]
+// CHECK:STDOUT:   %struct.1: <invalid> = struct_value () [template]
+// CHECK:STDOUT:   %Foo: type = fn_type @Foo [template]
+// CHECK:STDOUT:   %struct.2: Foo = struct_value () [template]
+// CHECK:STDOUT: }
+// CHECK:STDOUT:
 // CHECK:STDOUT: file {
 // CHECK:STDOUT:   package: <namespace> = namespace [template] {
 // CHECK:STDOUT:     .NS = %NS
+// CHECK:STDOUT:     .Core = %Core
 // CHECK:STDOUT:   }
-// CHECK:STDOUT:   %import_ref: <namespace> = import_ref ir1, inst+1, used
+// CHECK:STDOUT:   %import_ref: <namespace> = import_ref ir1, inst+2, loaded
 // CHECK:STDOUT:   %NS: <namespace> = namespace %import_ref, [template] {
-// CHECK:STDOUT:     .Foo = %Foo
+// CHECK:STDOUT:     .Foo = %Foo.decl
 // CHECK:STDOUT:   }
-// CHECK:STDOUT:   %.loc15: <function> = fn_decl @.1 [template] {}
-// CHECK:STDOUT:   %Foo: <function> = fn_decl @Foo [template] {}
+// CHECK:STDOUT:   %Core: <namespace> = namespace [template] {}
+// CHECK:STDOUT:   %.decl: <invalid> = fn_decl @.1 [template = constants.%struct.1] {}
+// CHECK:STDOUT:   %Foo.decl: Foo = fn_decl @Foo [template = constants.%struct.2] {}
 // CHECK:STDOUT: }
 // CHECK:STDOUT:
 // CHECK:STDOUT: fn @.1();

@@ -84,6 +84,7 @@ cc_library(
         "//common:check",
         "//common:vlog",
         "//toolchain/base:index_base",
+        "//toolchain/base:kind_switch",
         "//toolchain/check:scope_stack",
         "//toolchain/diagnostics:diagnostic_emitter",
         "//toolchain/lex:tokenized_buffer",
@@ -101,7 +102,10 @@ cc_library(
 
 cc_library(
     name = "check",
-    srcs = ["check.cpp"] +
+    srcs = [
+        "check.cpp",
+        "handle.h",
+    ] +
     # Glob handler files to avoid missing any.
     glob([
         "handle_*.cpp",
@@ -117,7 +121,11 @@ cc_library(
         ":operator",
         ":pointer_dereference",
         "//common:check",
+        "//common:error",
         "//common:ostream",
+        "//common:variant_helpers",
+        "//common:vlog",
+        "//toolchain/base:kind_switch",
         "//toolchain/base:pretty_stack_trace_function",
         "//toolchain/base:value_store",
         "//toolchain/diagnostics:diagnostic_emitter",
@@ -167,6 +175,7 @@ cc_library(
     deps = [
         ":context",
         "//common:check",
+        "//toolchain/base:kind_switch",
         "//toolchain/diagnostics:diagnostic_emitter",
         "//toolchain/sem_ir:file",
         "//toolchain/sem_ir:ids",
@@ -182,6 +191,7 @@ cc_library(
     deps = [
         ":context",
         "//common:check",
+        "//toolchain/base:kind_switch",
         "//toolchain/parse:node_kind",
         "//toolchain/sem_ir:file",
         "//toolchain/sem_ir:ids",
@@ -211,6 +221,7 @@ cc_library(
     deps = [
         ":context",
         "//common:check",
+        "//toolchain/base:kind_switch",
         "//toolchain/diagnostics:diagnostic_emitter",
         "//toolchain/sem_ir:file",
         "//toolchain/sem_ir:ids",

@@ -19,6 +19,7 @@
 #include "toolchain/parse/tree.h"
 #include "toolchain/sem_ir/file.h"
 #include "toolchain/sem_ir/ids.h"
+#include "toolchain/sem_ir/import_ir.h"
 #include "toolchain/sem_ir/inst.h"
 
 namespace Carbon::Check {
@@ -81,11 +82,6 @@ class Context {
   auto ReplaceInstBeforeConstantUse(SemIR::InstId inst_id, SemIR::Inst inst)
       -> void;
 
-  // Adds an import_ref instruction for the specified instruction in the
-  // specified IR. The import_ref is initially marked as unused.
-  auto AddImportRef(SemIR::ImportIRId ir_id, SemIR::InstId inst_id)
-      -> SemIR::InstId;
-
   // Sets only the parse node of an instruction. This is only used when setting
   // the parse node of an imported namespace. Versus
   // ReplaceInstBeforeConstantUse, it is safe to use after the namespace is used
@@ -113,6 +109,7 @@ class Context {
   // instruction. Does not look into extended scopes. Returns an invalid
   // instruction if the name is not found.
   auto LookupNameInExactScope(SemIRLoc loc, SemIR::NameId name_id,
+                              SemIR::NameScopeId scope_id,
                               const SemIR::NameScope& scope) -> SemIR::InstId;
 
   // Performs a qualified name lookup in a specified scope and in scopes that
@@ -121,11 +118,15 @@ class Context {
                            SemIR::NameScopeId scope_id, bool required = true)
       -> SemIR::InstId;
 
+  // Returns the instruction corresponding to a name in the core package, or
+  // BuiltinError if not found.
+  auto LookupNameInCore(SemIRLoc loc, llvm::StringRef name) -> SemIR::InstId;
+
   // Prints a diagnostic for a duplicate name.
   auto DiagnoseDuplicateName(SemIRLoc dup_def, SemIRLoc prev_def) -> void;
 
   // Prints a diagnostic for a missing name.
-  auto DiagnoseNameNotFound(SemIR::LocId loc_id, SemIR::NameId name_id) -> void;
+  auto DiagnoseNameNotFound(SemIRLoc loc, SemIR::NameId name_id) -> void;
 
   // Adds a note to a diagnostic explaining that a class is incomplete.
   auto NoteIncompleteClass(SemIR::ClassId class_id, DiagnosticBuilder& builder)
@@ -177,6 +178,17 @@ class Context {
       Parse::NodeId node_id, std::initializer_list<SemIR::InstId> block_args)
       -> SemIR::InstId;
 
+  // Sets the constant value of a block argument created as the result of a
+  // branch.  `select_id` should be a `BlockArg` that selects between two
+  // values. `cond_id` is the condition, `if_false` is the value to use if the
+  // condition is false, and `if_true` is the value to use if the condition is
+  // true.  We don't track enough information in the `BlockArg` inst for
+  // `TryEvalInst` to do this itself.
+  auto SetBlockArgResultBeforeConstantUse(SemIR::InstId select_id,
+                                          SemIR::InstId cond_id,
+                                          SemIR::InstId if_true,
+                                          SemIR::InstId if_false) -> void;
+
   // Add the current code block to the enclosing function.
   // TODO: The node_id is taken for expressions, which can occur in
   // non-function contexts. This should be refactored to support non-function
@@ -226,6 +238,14 @@ class Context {
 
   // Gets a builtin type. The returned type will be complete.
   auto GetBuiltinType(SemIR::BuiltinKind kind) -> SemIR::TypeId;
+
+  // Gets a function type. The returned type will be complete.
+  auto GetFunctionType(SemIR::FunctionId fn_id) -> SemIR::TypeId;
+
+  // Gets a generic class type, which is the type of a name of a generic class,
+  // such as the type of `Vector` given `class Vector(T:! type)`. The returned
+  // type will be complete.
+  auto GetGenericClassType(SemIR::ClassId class_id) -> SemIR::TypeId;
 
   // Returns a pointer type whose pointee type is `pointee_type_id`.
   auto GetPointerType(SemIR::TypeId pointee_type_id) -> SemIR::TypeId;
@@ -298,6 +318,10 @@ class Context {
     return scope_stack().break_continue_stack();
   }
 
+  auto check_ir_map() -> llvm::SmallVector<SemIR::ImportIRId>& {
+    return check_ir_map_;
+  }
+
   auto import_ir_constant_values()
       -> llvm::SmallVector<SemIR::ConstantValueStore, 0>& {
     return import_ir_constant_values_;
@@ -310,6 +334,7 @@ class Context {
   }
   auto ints() -> ValueStore<IntId>& { return sem_ir().ints(); }
   auto reals() -> ValueStore<RealId>& { return sem_ir().reals(); }
+  auto floats() -> ValueStore<FloatId>& { return sem_ir().floats(); }
   auto string_literal_values() -> StringStoreWrapper<StringLiteralValueId>& {
     return sem_ir().string_literal_values();
   }
@@ -415,6 +440,9 @@ class Context {
 
   // The list which will form NodeBlockId::Exports.
   llvm::SmallVector<SemIR::InstId> exports_;
+
+  // Maps CheckIRId to ImportIRId.
+  llvm::SmallVector<SemIR::ImportIRId> check_ir_map_;
 
   // Per-import constant values. These refer to the main IR and mainly serve as
   // a lookup table for quick access.

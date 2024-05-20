@@ -18,18 +18,26 @@ fn A() {
 
 // CHECK:STDOUT: --- fail_deref_function.carbon
 // CHECK:STDOUT:
+// CHECK:STDOUT: constants {
+// CHECK:STDOUT:   %A: type = fn_type @A [template]
+// CHECK:STDOUT:   %.1: type = tuple_type () [template]
+// CHECK:STDOUT:   %struct: A = struct_value () [template]
+// CHECK:STDOUT: }
+// CHECK:STDOUT:
 // CHECK:STDOUT: file {
 // CHECK:STDOUT:   package: <namespace> = namespace [template] {
-// CHECK:STDOUT:     .A = %A
+// CHECK:STDOUT:     .Core = %Core
+// CHECK:STDOUT:     .A = %A.decl
 // CHECK:STDOUT:   }
-// CHECK:STDOUT:   %A: <function> = fn_decl @A [template] {}
+// CHECK:STDOUT:   %Core: <namespace> = namespace [template] {}
+// CHECK:STDOUT:   %A.decl: A = fn_decl @A [template = constants.%struct] {}
 // CHECK:STDOUT: }
 // CHECK:STDOUT:
 // CHECK:STDOUT: fn @A() {
 // CHECK:STDOUT: !entry:
-// CHECK:STDOUT:   %A.ref.loc12: <function> = name_ref A, file.%A [template = file.%A]
+// CHECK:STDOUT:   %A.ref.loc12: A = name_ref A, file.%A.decl [template = constants.%struct]
 // CHECK:STDOUT:   %.loc12: ref <error> = deref <error>
-// CHECK:STDOUT:   %A.ref.loc16: <function> = name_ref A, file.%A [template = file.%A]
+// CHECK:STDOUT:   %A.ref.loc16: A = name_ref A, file.%A.decl [template = constants.%struct]
 // CHECK:STDOUT:   %.loc16: ref <error> = deref <error>
 // CHECK:STDOUT:   return
 // CHECK:STDOUT: }

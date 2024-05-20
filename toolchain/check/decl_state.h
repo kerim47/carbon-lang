@@ -66,10 +66,12 @@ struct DeclState {
   // The kind of declaration.
   enum DeclKind : int8_t {
     FileScope,
+    Adapt,
     Alias,
     Base,
     Class,
     Constraint,
+    Export,
     Fn,
     Impl,
     Interface,
